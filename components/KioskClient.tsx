@@ -72,7 +72,7 @@ const COPY: Record<
   kk: {
     scanPrompt: "Скан жасап, келесі бетті ал",
     completedCount: "аяқталды",
-    assignmentTtl: "Бөлу уақыты",
+    assignmentTtl: "Хатымға берілген уақыт",
     pageDashboard: "Беттер панелі",
     available: "Бос",
     assigned: "Тағайындалған",

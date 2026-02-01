@@ -68,7 +68,7 @@ $$;
 create or replace function claim_next_page(
   p_session_id uuid,
   p_user_id text,
-  p_ttl_minutes int default 3
+  p_ttl_minutes int default 5
 )
 returns table (
   page_number int,
