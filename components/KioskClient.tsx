@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Open_Sans } from "next/font/google";
 import { QRCodeCanvas } from "qrcode.react";
 import Confetti from "react-confetti";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -27,6 +28,72 @@ type Props = {
   sessionId: string;
 };
 
+type Language = "en" | "kk";
+
+const LANG_KEY = "hatym_kiosk_lang";
+
+const COPY: Record<
+  Language,
+  {
+    scanPrompt: string;
+    completedCount: string;
+    assignmentTtl: string;
+    pageDashboard: string;
+    available: string;
+    assigned: string;
+    completed: string;
+    loading: string;
+    reload: string;
+    confettiTitle: string;
+    confettiSubtitle: string;
+    startNewSession: string;
+    starting: string;
+    ringLabel: string;
+    ringCaption: string;
+  }
+> = {
+  en: {
+    scanPrompt: "Scan to claim the next page",
+    completedCount: "completed",
+    assignmentTtl: "Assignment TTL",
+    pageDashboard: "Page dashboard",
+    available: "Available",
+    assigned: "Assigned",
+    completed: "Completed",
+    loading: "Loading hatym session...",
+    reload: "Reload",
+    confettiTitle: "Congratulations, hatym completed!",
+    confettiSubtitle: "All 604 pages have been completed.",
+    startNewSession: "Start new hatym session",
+    starting: "Starting...",
+    ringLabel: "completed",
+    ringCaption: "Hatym completion"
+  },
+  kk: {
+    scanPrompt: "Скан жасап, келесі бетті ал",
+    completedCount: "аяқталды",
+    assignmentTtl: "Бөлу уақыты",
+    pageDashboard: "Беттер панелі",
+    available: "Бос",
+    assigned: "Тағайындалған",
+    completed: "Аяқталған",
+    loading: "Хатым сессиясы жүктелуде...",
+    reload: "Қайта жүктеу",
+    confettiTitle: "Құттықтаймыз, хатым аяқталды!",
+    confettiSubtitle: "Барлық 604 бет аяқталды.",
+    startNewSession: "Жаңа хатым сессиясын бастау",
+    starting: "Басталуда...",
+    ringLabel: "аяқталды",
+    ringCaption: "Хатым орындалуы"
+  }
+};
+
+const kkSans = Open_Sans({
+  subsets: ["cyrillic"],
+  weight: ["400", "600"],
+  display: "swap"
+});
+
 function useWindowSize() {
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
@@ -42,12 +109,21 @@ function useWindowSize() {
 
 export default function KioskClient({ sessionId }: Props) {
   const supabase = getSupabaseBrowserClient();
+  const [lang, setLang] = useState<Language>("en");
   const [pages, setPages] = useState<HatymPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [qrValue, setQrValue] = useState("");
   const [starting, setStarting] = useState(false);
   const { width, height } = useWindowSize();
+  const t = COPY[lang];
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(LANG_KEY);
+    if (stored === "en" || stored === "kk") {
+      setLang(stored);
+    }
+  }, []);
 
   useEffect(() => {
     const origin = window.location.origin;
@@ -141,7 +217,7 @@ export default function KioskClient({ sessionId }: Props) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-xl text-hatym-ink">
-        Loading hatym session...
+        {t.loading}
       </div>
     );
   }
@@ -154,7 +230,7 @@ export default function KioskClient({ sessionId }: Props) {
           className="rounded-full border border-hatym-ink px-6 py-2 text-sm uppercase tracking-wide"
           onClick={() => window.location.reload()}
         >
-          Reload
+          {t.reload}
         </button>
       </div>
     );
@@ -165,14 +241,14 @@ export default function KioskClient({ sessionId }: Props) {
       <div className="relative min-h-screen overflow-hidden bg-hatym-dark text-white">
         <Confetti width={width} height={height} numberOfPieces={350} recycle={false} />
         <div className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-6 text-center">
-          <div className="text-5xl font-semibold tracking-tight">Congratulations, hatym completed!</div>
-          <div className="text-lg text-white/80">All 604 pages have been completed.</div>
+          <div className="text-5xl font-semibold tracking-tight">{t.confettiTitle}</div>
+          <div className="text-lg text-white/80">{t.confettiSubtitle}</div>
           <button
             className="rounded-full bg-white px-8 py-3 text-sm font-semibold uppercase tracking-wide text-hatym-dark transition hover:scale-[1.02]"
             onClick={handleStartNewSession}
             disabled={starting}
           >
-            {starting ? "Starting..." : "Start new hatym session"}
+            {starting ? t.starting : t.startNewSession}
           </button>
           {error ? <div className="text-sm text-red-200">{error}</div> : null}
         </div>
@@ -181,34 +257,60 @@ export default function KioskClient({ sessionId }: Props) {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 gap-0">
+    <div
+      className={`min-h-screen grid grid-cols-1 lg:grid-cols-2 gap-0 ${
+        lang === "kk" ? kkSans.className : ""
+      }`}
+    >
       <section className="flex flex-col items-center justify-center gap-6 px-10 py-12 bg-white/70">
+        <div className="w-full flex justify-end">
+          <div className="flex items-center gap-1 rounded-full border border-black/10 bg-white/80 p-1 text-xs uppercase tracking-[0.3em] text-hatym-ink/70">
+            <button
+              className={`rounded-full px-3 py-1 ${lang === "en" ? "bg-hatym-ink text-white" : ""}`}
+              onClick={() => {
+                setLang("en");
+                window.localStorage.setItem(LANG_KEY, "en");
+              }}
+            >
+              EN
+            </button>
+            <button
+              className={`rounded-full px-3 py-1 ${lang === "kk" ? "bg-hatym-ink text-white" : ""}`}
+              onClick={() => {
+                setLang("kk");
+                window.localStorage.setItem(LANG_KEY, "kk");
+              }}
+            >
+              ҚАЗ
+            </button>
+          </div>
+        </div>
         <div className="text-2xl font-semibold tracking-tight text-hatym-ink">
-          Scan to claim the next page
+          {t.scanPrompt}
         </div>
         <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-xl">
           <QRCodeCanvas value={qrValue} size={320} bgColor="#ffffff" fgColor="#111111" />
         </div>
         <div className="text-xl font-semibold text-hatym-ink">
-          {counts.completed} / {TOTAL_PAGES} completed
+          {counts.completed} / {TOTAL_PAGES} {t.completedCount}
         </div>
         <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/60">
-          Assignment TTL: {ASSIGNMENT_TTL_MINUTES} min
+          {t.assignmentTtl}: {ASSIGNMENT_TTL_MINUTES} min
         </div>
       </section>
 
       <section className="flex flex-col gap-6 px-8 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="text-xl font-semibold text-hatym-ink">Page dashboard</div>
+          <div className="text-xl font-semibold text-hatym-ink">{t.pageDashboard}</div>
           <div className="flex flex-wrap items-center gap-4 text-sm uppercase tracking-wide text-hatym-ink/70">
             <span className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-sm bg-hatym-gray" /> Available: {counts.available}
+              <span className="h-3 w-3 rounded-sm bg-hatym-gray" /> {t.available}: {counts.available}
             </span>
             <span className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-sm bg-hatym-yellow" /> Assigned: {counts.assigned}
+              <span className="h-3 w-3 rounded-sm bg-hatym-yellow" /> {t.assigned}: {counts.assigned}
             </span>
             <span className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-sm bg-hatym-green" /> Completed: {counts.completed}
+              <span className="h-3 w-3 rounded-sm bg-hatym-green" /> {t.completed}: {counts.completed}
             </span>
           </div>
         </div>
@@ -227,9 +329,9 @@ export default function KioskClient({ sessionId }: Props) {
         </div>
 
         <div className="flex flex-col items-center gap-3 pt-4">
-          <ProgressRing completed={counts.completed} total={TOTAL_PAGES} />
+          <ProgressRing completed={counts.completed} total={TOTAL_PAGES} label={t.ringLabel} />
           <div className="text-xs uppercase tracking-[0.35em] text-hatym-ink/60">
-            Hatym completion
+            {t.ringCaption}
           </div>
         </div>
       </section>

@@ -7,13 +7,20 @@ type Props = {
   total: number;
   size?: number;
   stroke?: number;
+  label?: string;
 };
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-export default function ProgressRing({ completed, total, size = 180, stroke = 14 }: Props) {
+export default function ProgressRing({
+  completed,
+  total,
+  size = 180,
+  stroke = 14,
+  label = "completed"
+}: Props) {
   const id = useId();
   const ratio = total > 0 ? clamp(completed / total, 0, 1) : 0;
   const percent = Math.round(ratio * 100);
@@ -64,9 +71,7 @@ export default function ProgressRing({ completed, total, size = 180, stroke = 14
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="text-3xl font-semibold text-hatym-ink">{percent}%</div>
-        <div className="text-[0.7rem] uppercase tracking-[0.3em] text-hatym-ink/60">
-          completed
-        </div>
+        <div className="text-[0.7rem] uppercase tracking-[0.3em] text-hatym-ink/60">{label}</div>
       </div>
     </div>
   );
