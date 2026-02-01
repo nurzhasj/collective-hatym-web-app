@@ -54,6 +54,10 @@ as $$
 declare
   v_session_id uuid;
 begin
+  -- Clean up completed sessions to avoid unbounded growth
+  delete from hatym_sessions
+  where is_active = false or completed_at is not null;
+
   insert into hatym_sessions (is_active) values (true) returning id into v_session_id;
 
   insert into hatym_pages (session_id, page_number, status)
