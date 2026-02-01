@@ -126,11 +126,9 @@ export default function KioskClient({ sessionId }: Props) {
   }, []);
 
   useEffect(() => {
-    const origin = window.location.origin;
-    const lanOrigin = "http://192.168.1.203:3000";
-    const useLan =
-      origin.includes("localhost") || origin.includes("127.0.0.1");
-    setQrValue(`${useLan ? lanOrigin : origin}/s/${sessionId}/claim`);
+    const override = process.env.NEXT_PUBLIC_KIOSK_BASE_URL;
+    const origin = override ? override.replace(/\/$/, "") : window.location.origin;
+    setQrValue(`${origin}/s/${sessionId}/claim`);
   }, [sessionId]);
 
   useEffect(() => {
