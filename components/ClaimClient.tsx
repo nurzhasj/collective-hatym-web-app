@@ -77,7 +77,7 @@ const kkSans = Open_Sans({
 
 export default function ClaimClient({ sessionId }: Props) {
   const supabase = getSupabaseBrowserClient();
-  const [lang, setLang] = useState<Language>("en");
+  const [lang, setLang] = useState<Language>("kk");
   const [userId, setUserId] = useState("");
   const [pageNumber, setPageNumber] = useState<number | null>(null);
   const [claimToken, setClaimToken] = useState<string | null>(null);
@@ -96,6 +96,8 @@ export default function ClaimClient({ sessionId }: Props) {
     const stored = window.localStorage.getItem(LANG_KEY);
     if (stored === "en" || stored === "kk") {
       setLang(stored);
+    } else {
+      window.localStorage.setItem(LANG_KEY, "kk");
     }
   }, []);
 

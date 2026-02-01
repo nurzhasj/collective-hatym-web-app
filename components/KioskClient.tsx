@@ -109,7 +109,7 @@ function useWindowSize() {
 
 export default function KioskClient({ sessionId }: Props) {
   const supabase = getSupabaseBrowserClient();
-  const [lang, setLang] = useState<Language>("en");
+  const [lang, setLang] = useState<Language>("kk");
   const [pages, setPages] = useState<HatymPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +122,8 @@ export default function KioskClient({ sessionId }: Props) {
     const stored = window.localStorage.getItem(LANG_KEY);
     if (stored === "en" || stored === "kk") {
       setLang(stored);
+    } else {
+      window.localStorage.setItem(LANG_KEY, "kk");
     }
   }, []);
 
