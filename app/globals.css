@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: light;
+  --font-sans: ui-sans-serif;
 }
 
 body {

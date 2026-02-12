@@ -23,7 +23,7 @@ export default function ProgressRing({
 }: Props) {
   const id = useId();
   const ratio = total > 0 ? clamp(completed / total, 0, 1) : 0;
-  const percent = Math.round(ratio * 100);
+  const percent = (ratio * 100).toFixed(2);
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - ratio);

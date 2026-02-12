@@ -25,22 +25,34 @@ create table if not exists hatym_pages (
   primary key (session_id, page_number)
 );
 
+create table if not exists hatym_claim_events (
+  id bigserial primary key,
+  session_id uuid not null references hatym_sessions(id) on delete cascade,
+  user_id text not null,
+  page_number int not null references quran_pages(page_number),
+  claimed_at timestamptz not null default now()
+);
+
 -- Indexes
 create index if not exists hatym_pages_session_status_idx on hatym_pages (session_id, status);
 create index if not exists hatym_pages_session_assigned_at_idx on hatym_pages (session_id, assigned_at);
 create index if not exists hatym_pages_session_assigned_to_status_idx on hatym_pages (session_id, assigned_to, status);
+create index if not exists hatym_claim_events_session_user_idx on hatym_claim_events (session_id, user_id);
 
 -- RLS
 alter table hatym_sessions enable row level security;
 alter table quran_pages enable row level security;
 alter table hatym_pages enable row level security;
 
+drop policy if exists "Public read sessions" on hatym_sessions;
 create policy "Public read sessions" on hatym_sessions
   for select using (true);
 
+drop policy if exists "Public read quran pages" on quran_pages;
 create policy "Public read quran pages" on quran_pages
   for select using (true);
 
+drop policy if exists "Public read hatym pages" on hatym_pages;
 create policy "Public read hatym pages" on hatym_pages
   for select using (true);
 
@@ -69,10 +81,38 @@ begin
 end;
 $$;
 
+create or replace function release_expired_assignments(
+  p_session_id uuid,
+  p_ttl_minutes int default 15
+)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_ttl interval := make_interval(mins => p_ttl_minutes);
+  v_released int := 0;
+begin
+  update hatym_pages hp
+  set status = 'available',
+      assigned_to = null,
+      assigned_at = null,
+      claim_token = null
+  where hp.session_id = p_session_id
+    and hp.status = 'assigned'
+    and hp.assigned_at < v_now - v_ttl;
+
+  get diagnostics v_released = row_count;
+  return v_released;
+end;
+$$;
+
 create or replace function claim_next_page(
   p_session_id uuid,
   p_user_id text,
-  p_ttl_minutes int default 5
+  p_ttl_minutes int default 15
 )
 returns table (
   page_number int,
@@ -87,9 +127,12 @@ as $$
 declare
   v_now timestamptz := now();
   v_ttl interval := make_interval(mins => p_ttl_minutes);
-  v_existing record;
   v_page record;
   v_session_active boolean;
+  v_claimed_count int := 0;
+  v_rows_returned int := 0;
+  v_rows int := 0;
+  v_max_pages int := 3;
 begin
   select is_active into v_session_active from hatym_sessions where id = p_session_id;
   if v_session_active is distinct from true then
@@ -98,37 +141,48 @@ begin
     return;
   end if;
 
-  select hp.page_number, qp.mushaf_url, hp.claim_token
-  into v_existing
+  -- Serialize claims for the same user in the same session.
+  perform pg_advisory_xact_lock(hashtext(p_session_id::text || ':' || p_user_id));
+
+  -- Take back expired assignments so they become available again.
+  perform release_expired_assignments(p_session_id, p_ttl_minutes);
+
+  select count(*)
+  into v_claimed_count
+  from hatym_claim_events hce
+  where hce.session_id = p_session_id
+    and hce.user_id = p_user_id;
+
+  return query
+  select
+    hp.page_number,
+    qp.mushaf_url,
+    case when hp.status = 'assigned' then hp.claim_token else null end as claim_token,
+    hp.status
   from hatym_pages hp
   join quran_pages qp on qp.page_number = hp.page_number
   where hp.session_id = p_session_id
-    and hp.status = 'assigned'
     and hp.assigned_to = p_user_id
-    and hp.assigned_at >= v_now - v_ttl
-  order by hp.assigned_at desc
-  limit 1;
+    and hp.status in ('assigned', 'completed')
+  order by case when hp.status = 'assigned' then 0 else 1 end, hp.page_number
+  limit v_max_pages;
 
-  if found then
-    page_number := v_existing.page_number;
-    mushaf_url := v_existing.mushaf_url;
-    claim_token := v_existing.claim_token;
-    status := 'assigned';
-    return next;
+  get diagnostics v_rows = row_count;
+  v_rows_returned := v_rows_returned + v_rows;
+
+  if v_rows_returned > v_claimed_count then
+    v_claimed_count := v_rows_returned;
+  end if;
+
+  if v_claimed_count >= v_max_pages then
+    if v_rows_returned = 0 then
+      status := 'limit_reached';
+      return next;
+    end if;
     return;
   end if;
 
-  select hp.page_number
-  into v_page
-  from hatym_pages hp
-  where hp.session_id = p_session_id
-    and hp.status = 'assigned'
-    and hp.assigned_at < v_now - v_ttl
-  order by hp.assigned_at asc
-  for update skip locked
-  limit 1;
-
-  if not found then
+  while v_claimed_count < v_max_pages and v_rows_returned < v_max_pages loop
     select hp.page_number
     into v_page
     from hatym_pages hp
@@ -137,28 +191,38 @@ begin
     order by hp.page_number asc
     for update skip locked
     limit 1;
-  end if;
 
-  if not found then
+    if not found then
+      exit;
+    end if;
+
+    update hatym_pages as hp
+    set status = 'assigned',
+        assigned_to = p_user_id,
+        assigned_at = v_now,
+        claim_token = encode(extensions.gen_random_bytes(24), 'base64')
+    where hp.session_id = p_session_id
+      and hp.page_number = v_page.page_number
+    returning hp.page_number,
+      (select qp.mushaf_url from quran_pages qp where qp.page_number = hp.page_number),
+      hp.claim_token
+    into page_number, mushaf_url, claim_token;
+
+    insert into hatym_claim_events (session_id, user_id, page_number)
+    values (p_session_id, p_user_id, page_number);
+
+    status := 'assigned';
+    return next;
+
+    v_rows_returned := v_rows_returned + 1;
+    v_claimed_count := v_claimed_count + 1;
+  end loop;
+
+  if v_rows_returned = 0 then
     status := 'finished';
     return next;
     return;
   end if;
-
-  update hatym_pages as hp
-  set status = 'assigned',
-      assigned_to = p_user_id,
-      assigned_at = v_now,
-      claim_token = encode(extensions.gen_random_bytes(24), 'base64')
-  where hp.session_id = p_session_id
-    and hp.page_number = v_page.page_number
-  returning hp.page_number,
-    (select qp.mushaf_url from quran_pages qp where qp.page_number = hp.page_number),
-    hp.claim_token
-  into page_number, mushaf_url, claim_token;
-
-  status := 'assigned';
-  return next;
 end;
 $$;
 
@@ -188,6 +252,7 @@ begin
     and hp.page_number = p_page_number
     and hp.status = 'assigned'
     and hp.assigned_to = p_user_id
+    and hp.assigned_at >= now() - interval '15 minute'
     and hp.claim_token = p_claim_token
   returning 1 into v_updated;
 
@@ -200,9 +265,9 @@ begin
   end if;
 
   select count(*) into v_completed
-  from hatym_pages
-  where session_id = p_session_id
-    and status = 'completed';
+  from hatym_pages hp
+  where hp.session_id = p_session_id
+    and hp.status = 'completed';
 
   if v_completed >= 604 then
     update hatym_sessions
@@ -227,6 +292,9 @@ grant execute on function create_hatym_session() to service_role;
 
 revoke all on function claim_next_page(uuid, text, int) from public;
 grant execute on function claim_next_page(uuid, text, int) to anon, authenticated;
+
+revoke all on function release_expired_assignments(uuid, int) from public;
+grant execute on function release_expired_assignments(uuid, int) to anon, authenticated;
 
 revoke all on function complete_page(uuid, int, text, text) from public;
 grant execute on function complete_page(uuid, int, text, text) to anon, authenticated;

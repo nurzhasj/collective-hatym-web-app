@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Open_Sans } from "next/font/google";
 import { QRCodeCanvas } from "qrcode.react";
 import Confetti from "react-confetti";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ASSIGNMENT_TTL_MINUTES, TOTAL_PAGES } from "@/lib/constants";
+import { ASSIGNMENT_TTL_MINUTES, MAX_PAGES_PER_USER, TOTAL_PAGES } from "@/lib/constants";
 import ProgressRing from "@/components/ProgressRing";
 
 const statusColors: Record<string, string> = {
@@ -28,71 +27,23 @@ type Props = {
   sessionId: string;
 };
 
-type Language = "en" | "kk";
-
-const LANG_KEY = "hatym_kiosk_lang";
-
-const COPY: Record<
-  Language,
-  {
-    scanPrompt: string;
-    completedCount: string;
-    assignmentTtl: string;
-    pageDashboard: string;
-    available: string;
-    assigned: string;
-    completed: string;
-    loading: string;
-    reload: string;
-    confettiTitle: string;
-    confettiSubtitle: string;
-    startNewSession: string;
-    starting: string;
-    ringLabel: string;
-    ringCaption: string;
-  }
-> = {
-  en: {
-    scanPrompt: "Scan to claim the next page",
-    completedCount: "completed",
-    assignmentTtl: "Assignment TTL",
-    pageDashboard: "Page dashboard",
-    available: "Available",
-    assigned: "Assigned",
-    completed: "Completed",
-    loading: "Loading hatym session...",
-    reload: "Reload",
-    confettiTitle: "Congratulations, hatym completed!",
-    confettiSubtitle: "All 604 pages have been completed.",
-    startNewSession: "Start new hatym session",
-    starting: "Starting...",
-    ringLabel: "completed",
-    ringCaption: "Hatym completion"
-  },
-  kk: {
-    scanPrompt: "Скан жасап, келесі бетті ал",
-    completedCount: "аяқталды",
-    assignmentTtl: "Хатымға берілген уақыт",
-    pageDashboard: "Беттер панелі",
-    available: "Бос",
-    assigned: "Тағайындалған",
-    completed: "Аяқталған",
-    loading: "Хатым сессиясы жүктелуде...",
-    reload: "Қайта жүктеу",
-    confettiTitle: "Құттықтаймыз, хатым аяқталды!",
-    confettiSubtitle: "Барлық 604 бет аяқталды.",
-    startNewSession: "Жаңа хатым сессиясын бастау",
-    starting: "Басталуда...",
-    ringLabel: "аяқталды",
-    ringCaption: "Хатым орындалуы"
-  }
+const COPY = {
+  scanPrompt: "Скан жасап, келесі бетті ал",
+  completedCount: "аяқталды",
+  perUserLimit: "Бір адамға бет саны",
+  pageDashboard: "Беттер панелі",
+  available: "Бос",
+  assigned: "Тағайындалған",
+  completed: "Аяқталған",
+  loading: "Хатым сессиясы жүктелуде...",
+  reload: "Қайта жүктеу",
+  confettiTitle: "Құттықтаймыз, хатым аяқталды!",
+  confettiSubtitle: "Барлық 604 бет аяқталды.",
+  startNewSession: "Жаңа хатым сессиясын бастау",
+  starting: "Басталуда...",
+  ringLabel: "аяқталды",
+  ringCaption: "Хатым орындалуы"
 };
-
-const kkSans = Open_Sans({
-  subsets: ["cyrillic"],
-  weight: ["400", "600"],
-  display: "swap"
-});
 
 function useWindowSize() {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -109,23 +60,13 @@ function useWindowSize() {
 
 export default function KioskClient({ sessionId }: Props) {
   const supabase = getSupabaseBrowserClient();
-  const [lang, setLang] = useState<Language>("kk");
   const [pages, setPages] = useState<HatymPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [qrValue, setQrValue] = useState("");
   const [starting, setStarting] = useState(false);
   const { width, height } = useWindowSize();
-  const t = COPY[lang];
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(LANG_KEY);
-    if (stored === "en" || stored === "kk") {
-      setLang(stored);
-    } else {
-      window.localStorage.setItem(LANG_KEY, "kk");
-    }
-  }, []);
+  const t = COPY;
 
   useEffect(() => {
     const override = process.env.NEXT_PUBLIC_KIOSK_BASE_URL;
@@ -136,9 +77,24 @@ export default function KioskClient({ sessionId }: Props) {
   useEffect(() => {
     let isMounted = true;
 
-    async function fetchPages() {
-      setLoading(true);
+    async function fetchPages(showLoading = false) {
+      if (showLoading) {
+        setLoading(true);
+      }
       setError(null);
+
+      const { error: releaseError } = await supabase.rpc("release_expired_assignments", {
+        p_session_id: sessionId,
+        p_ttl_minutes: ASSIGNMENT_TTL_MINUTES
+      });
+      if (releaseError) {
+        setError(releaseError.message);
+        if (showLoading) {
+          setLoading(false);
+        }
+        return;
+      }
+
       const { data, error: fetchError } = await supabase
         .from("hatym_pages")
         .select("session_id,page_number,status,assigned_to,assigned_at,completed_at,claim_token")
@@ -148,14 +104,21 @@ export default function KioskClient({ sessionId }: Props) {
       if (!isMounted) return;
       if (fetchError) {
         setError(fetchError.message);
-        setLoading(false);
+        if (showLoading) {
+          setLoading(false);
+        }
         return;
       }
       setPages((data ?? []) as HatymPage[]);
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
 
-    fetchPages();
+    fetchPages(true);
+    const refreshTimer = window.setInterval(() => {
+      void fetchPages(false);
+    }, 10000);
 
     const channel = supabase
       .channel(`hatym_pages:${sessionId}`)
@@ -179,6 +142,7 @@ export default function KioskClient({ sessionId }: Props) {
 
     return () => {
       isMounted = false;
+      window.clearInterval(refreshTimer);
       supabase.removeChannel(channel);
     };
   }, [sessionId, supabase]);
@@ -204,12 +168,12 @@ export default function KioskClient({ sessionId }: Props) {
       const response = await fetch("/api/session/new", { method: "POST" });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body?.error || "Failed to start new session");
+        throw new Error(body?.error || "Жаңа сессияны бастау мүмкін болмады");
       }
       const body = (await response.json()) as { sessionId: string };
       window.location.href = `/kiosk/${body.sessionId}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start new session");
+      setError(err instanceof Error ? err.message : "Жаңа сессияны бастау мүмкін болмады");
       setStarting(false);
     }
   }
@@ -257,34 +221,8 @@ export default function KioskClient({ sessionId }: Props) {
   }
 
   return (
-    <div
-      className={`min-h-screen grid grid-cols-1 lg:grid-cols-2 gap-0 ${
-        lang === "kk" ? kkSans.className : ""
-      }`}
-    >
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 gap-0">
       <section className="flex flex-col items-center justify-center gap-6 px-10 py-12 bg-white/70">
-        <div className="w-full flex justify-end">
-          <div className="flex items-center gap-1 rounded-full border border-black/10 bg-white/80 p-1 text-xs uppercase tracking-[0.3em] text-hatym-ink/70">
-            <button
-              className={`rounded-full px-3 py-1 ${lang === "en" ? "bg-hatym-ink text-white" : ""}`}
-              onClick={() => {
-                setLang("en");
-                window.localStorage.setItem(LANG_KEY, "en");
-              }}
-            >
-              EN
-            </button>
-            <button
-              className={`rounded-full px-3 py-1 ${lang === "kk" ? "bg-hatym-ink text-white" : ""}`}
-              onClick={() => {
-                setLang("kk");
-                window.localStorage.setItem(LANG_KEY, "kk");
-              }}
-            >
-              ҚАЗ
-            </button>
-          </div>
-        </div>
         <div className="text-2xl font-semibold tracking-tight text-hatym-ink">
           {t.scanPrompt}
         </div>
@@ -295,7 +233,7 @@ export default function KioskClient({ sessionId }: Props) {
           {counts.completed} / {TOTAL_PAGES} {t.completedCount}
         </div>
         <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/60">
-          {t.assignmentTtl}: {ASSIGNMENT_TTL_MINUTES} min
+          {t.perUserLimit}: {MAX_PAGES_PER_USER}
         </div>
       </section>
 

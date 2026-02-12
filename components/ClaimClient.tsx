@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Open_Sans } from "next/font/google";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ASSIGNMENT_TTL_MINUTES } from "@/lib/constants";
+import { ASSIGNMENT_TTL_MINUTES, MAX_PAGES_PER_USER } from "@/lib/constants";
 import { clearClaimToken, getOrCreateUserId, storeClaimToken } from "@/lib/browserStorage";
 
 type ClaimResponse = {
@@ -14,78 +13,38 @@ type ClaimResponse = {
   status: string | null;
 };
 
-type CompleteResponse = {
-  status: string | null;
-  completed_count: number | null;
-  finished: boolean | null;
+type ClaimedPage = {
+  pageNumber: number;
+  claimToken: string | null;
+  status: "assigned" | "completed";
 };
 
 type Props = {
   sessionId: string;
 };
 
-type Language = "en" | "kk";
-
-const LANG_KEY = "hatym_kiosk_lang";
-
-const COPY: Record<
-  Language,
-  {
-    yourPage: string;
-    openMushaf: string;
-    markCompleted: string;
-    resumeHint: string;
-    claiming: string;
-    hatymDone: string;
-    scanNewSession: string;
-    done: string;
-    scanAgain: string;
-    tryAgain: string;
-  }
-> = {
-  en: {
-    yourPage: "Your page",
-    openMushaf: "Open Mushaf",
-    markCompleted: "Mark as completed",
-    resumeHint: "If you close this page, scan again to resume your assignment.",
-    claiming: "Claiming your page...",
-    hatymDone: "Hatym already completed.",
-    scanNewSession: "Please scan the kiosk QR for a new session.",
-    done: "Done.",
-    scanAgain: "Refresh the page get another quranic page.",
-    tryAgain: "Try again"
-  },
-  kk: {
-    yourPage: "Сіздің бетіңіз",
-    openMushaf: "Мұсхафты ашу",
-    markCompleted: "Аяқталды деп белгілеу",
-    resumeHint: "Бұл бетті жапсаңыз, жаңа бет алу үшін бетті жаңартыңыз.",
-    claiming: "Бетіңіз тағайындалуда...",
-    hatymDone: "Хатым аяқталған.",
-    scanNewSession: "Жаңа сессия үшін киоск QR-кодын сканерлеңіз.",
-    done: "Оқылды.",
-    scanAgain: "Келесі бетті алу үшін бетті жаңартыңыз.",
-    tryAgain: "Қайта көріңіз"
-  }
+const COPY = {
+  yourPages: "Сіздің беттеріңіз",
+  pageStatusAssigned: "Тағайындалған",
+  pageStatusCompleted: "Аяқталды",
+  openMushaf: "Мұсхафты ашу",
+  resumeHint: "Бұл хатым сессиясында сізге ең көбі 3 бет беріледі. Қайта сканерлегенде тек осы беттер көрсетіледі.",
+  claiming: "Беттеріңіз дайындалуда...",
+  hatymDone: "Хатым аяқталған.",
+  scanNewSession: "Жаңа сессия үшін киоск QR-кодын сканерлеңіз.",
+  limitReached: "Бұл сессияда сізге 3 бет берілді.",
+  limitHint: "Жаңа хатым сессиясы басталғанда ғана жаңа бет ала аласыз.",
+  noPages: "Бұл сессияда сізге тиесілі белсенді беттер табылмады.",
+  tryAgain: "Қайта көріңіз"
 };
-
-const kkSans = Open_Sans({
-  subsets: ["cyrillic"],
-  weight: ["400", "600"],
-  display: "swap"
-});
 
 export default function ClaimClient({ sessionId }: Props) {
   const supabase = getSupabaseBrowserClient();
-  const [lang, setLang] = useState<Language>("kk");
   const [userId, setUserId] = useState("");
-  const [pageNumber, setPageNumber] = useState<number | null>(null);
-  const [claimToken, setClaimToken] = useState<string | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "assigned" | "finished" | "completed" | "error">(
-    "idle"
-  );
+  const [pages, setPages] = useState<ClaimedPage[]>([]);
+  const [status, setStatus] = useState<"idle" | "loading" | "assigned" | "finished" | "limit" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const t = COPY[lang];
+  const t = COPY;
 
   useEffect(() => {
     const id = getOrCreateUserId();
@@ -93,19 +52,10 @@ export default function ClaimClient({ sessionId }: Props) {
   }, []);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(LANG_KEY);
-    if (stored === "en" || stored === "kk") {
-      setLang(stored);
-    } else {
-      window.localStorage.setItem(LANG_KEY, "kk");
-    }
-  }, []);
-
-  useEffect(() => {
     if (!userId) return;
     let isMounted = true;
 
-    async function claimPage() {
+    async function claimPages() {
       setStatus("loading");
       setError(null);
       const { data, error: claimError } = await supabase.rpc("claim_next_page", {
@@ -121,72 +71,62 @@ export default function ClaimClient({ sessionId }: Props) {
         return;
       }
 
-      const row = (data?.[0] ?? null) as ClaimResponse | null;
-      if (!row || row.status === "finished") {
+      const rows = (data ?? []) as ClaimResponse[];
+      const hasLimitRow = rows.some((row) => row.status === "limit_reached");
+      const hasFinishedRow = rows.some((row) => row.status === "finished");
+
+      const nextPages: ClaimedPage[] = [];
+      const seen = new Set<number>();
+      for (const row of rows) {
+        if (typeof row.page_number !== "number" || seen.has(row.page_number)) continue;
+        seen.add(row.page_number);
+
+        const pageStatus = row.status === "completed" ? "completed" : "assigned";
+        nextPages.push({
+          pageNumber: row.page_number,
+          claimToken: pageStatus === "assigned" ? row.claim_token ?? null : null,
+          status: pageStatus
+        });
+      }
+
+      for (const page of nextPages) {
+        if (page.claimToken) {
+          storeClaimToken(sessionId, page.pageNumber, page.claimToken);
+        } else {
+          clearClaimToken(sessionId, page.pageNumber);
+        }
+      }
+
+      if (nextPages.length > 0) {
+        setPages(nextPages.slice(0, MAX_PAGES_PER_USER));
+        setStatus("assigned");
+        return;
+      }
+
+      if (hasLimitRow) {
+        setStatus("limit");
+        return;
+      }
+
+      if (hasFinishedRow) {
         setStatus("finished");
         return;
       }
 
-      const nextPageNumber = row.page_number ?? null;
-      const nextClaimToken = row.claim_token ?? null;
-
-      setPageNumber(nextPageNumber);
-      setClaimToken(nextClaimToken);
-      if (nextPageNumber && nextClaimToken) {
-        storeClaimToken(sessionId, nextPageNumber, nextClaimToken);
-      }
-      setStatus("assigned");
+      setError("Сұраныс нәтижесі түсініксіз.");
+      setStatus("error");
     }
 
-    claimPage();
+    claimPages();
 
     return () => {
       isMounted = false;
     };
   }, [sessionId, supabase, userId]);
 
-  const canComplete = useMemo(() => {
-    return status === "assigned" && pageNumber && claimToken;
-  }, [status, pageNumber, claimToken]);
-
-  async function handleComplete() {
-    if (!canComplete || !pageNumber || !claimToken) return;
-    setStatus("loading");
-    setError(null);
-
-    const { data, error: completeError } = await supabase.rpc("complete_page", {
-      p_session_id: sessionId,
-      p_page_number: pageNumber,
-      p_user_id: userId,
-      p_claim_token: claimToken
-    });
-
-    if (completeError) {
-      setError(completeError.message);
-      setStatus("error");
-      return;
-    }
-
-    const row = (data?.[0] ?? null) as CompleteResponse | null;
-    if (!row || row.status !== "completed") {
-      setError("Unable to complete this page. Please scan again.");
-      setStatus("error");
-      return;
-    }
-
-    if (pageNumber) {
-      clearClaimToken(sessionId, pageNumber);
-    }
-    setStatus("completed");
-  }
-
   if (status === "loading" || status === "idle") {
     return (
-      <div
-        className={`min-h-screen flex items-center justify-center bg-white text-hatym-ink ${
-          lang === "kk" ? kkSans.className : ""
-        }`}
-      >
+      <div className="min-h-screen flex items-center justify-center bg-white text-hatym-ink">
         {t.claiming}
       </div>
     );
@@ -194,38 +134,27 @@ export default function ClaimClient({ sessionId }: Props) {
 
   if (status === "finished") {
     return (
-      <div
-        className={`min-h-screen flex flex-col items-center justify-center gap-3 bg-white text-center text-hatym-ink ${
-          lang === "kk" ? kkSans.className : ""
-        }`}
-      >
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-white text-center text-hatym-ink">
         <div className="text-2xl font-semibold">{t.hatymDone}</div>
         <div className="text-sm text-hatym-ink/70">{t.scanNewSession}</div>
       </div>
     );
   }
 
-  if (status === "completed") {
+  if (status === "limit") {
     return (
-      <div
-        className={`min-h-screen flex flex-col items-center justify-center gap-3 bg-white text-center text-hatym-ink ${
-          lang === "kk" ? kkSans.className : ""
-        }`}
-      >
-        <div className="text-2xl font-semibold">{t.done}</div>
-        <div className="text-sm text-hatym-ink/70">{t.scanAgain}</div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-white px-6 text-center text-hatym-ink">
+        <div className="text-2xl font-semibold">{t.limitReached}</div>
+        <div className="max-w-md text-sm text-hatym-ink/70">{t.limitHint}</div>
+        <div className="text-xs text-hatym-ink/60">{t.noPages}</div>
       </div>
     );
   }
 
   if (status === "error") {
     return (
-      <div
-        className={`min-h-screen flex flex-col items-center justify-center gap-4 bg-white text-center text-hatym-ink ${
-          lang === "kk" ? kkSans.className : ""
-        }`}
-      >
-        <div className="text-lg">{error ?? "Something went wrong."}</div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white text-center text-hatym-ink">
+        <div className="text-lg">{error ?? "Қате орын алды."}</div>
         <button
           className="rounded-full border border-hatym-ink px-6 py-2 text-sm uppercase tracking-wide"
           onClick={() => window.location.reload()}
@@ -237,52 +166,33 @@ export default function ClaimClient({ sessionId }: Props) {
   }
 
   return (
-    <div
-      className={`min-h-screen flex flex-col items-center justify-center gap-6 bg-white px-6 text-center text-hatym-ink ${
-        lang === "kk" ? kkSans.className : ""
-      }`}
-    >
-      <div className="w-full flex justify-center">
-        <div className="flex items-center gap-1 rounded-full border border-black/10 bg-white/80 p-1 text-xs uppercase tracking-[0.3em] text-hatym-ink/70">
-          <button
-            className={`rounded-full px-3 py-1 ${lang === "en" ? "bg-hatym-ink text-white" : ""}`}
-            onClick={() => {
-              setLang("en");
-              window.localStorage.setItem(LANG_KEY, "en");
-            }}
-          >
-            EN
-          </button>
-          <button
-            className={`rounded-full px-3 py-1 ${lang === "kk" ? "bg-hatym-ink text-white" : ""}`}
-            onClick={() => {
-              setLang("kk");
-              window.localStorage.setItem(LANG_KEY, "kk");
-            }}
-          >
-            ҚАЗ
-          </button>
-        </div>
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-white px-6 py-10 text-center text-hatym-ink">
+      <div className="text-sm uppercase tracking-[0.3em] text-hatym-ink/60">
+        {t.yourPages} ({pages.length} / {MAX_PAGES_PER_USER})
       </div>
-      <div className="text-sm uppercase tracking-[0.3em] text-hatym-ink/60">{t.yourPage}</div>
-      <div className="text-6xl font-semibold">{pageNumber}</div>
-      <div className="flex flex-col gap-3 w-full max-w-xs">
-        <Link
-          href={pageNumber ? `/read/${sessionId}/${pageNumber}` : "#"}
-          className={`rounded-full bg-hatym-ink px-6 py-3 text-sm font-semibold uppercase tracking-wide text-white ${
-            pageNumber ? "" : "pointer-events-none opacity-50"
-          }`}
-        >
-          {t.openMushaf}
-        </Link>
-        <button
-          className="rounded-full border border-hatym-ink px-6 py-3 text-sm font-semibold uppercase tracking-wide"
-          onClick={handleComplete}
-        >
-          {t.markCompleted}
-        </button>
+
+      <div className="w-full max-w-sm space-y-3">
+        {pages.map((page) => (
+          <div key={page.pageNumber} className="rounded-3xl border border-black/10 bg-white px-5 py-4 shadow-sm">
+            <div className="text-4xl font-semibold">{page.pageNumber}</div>
+            <div className="mt-1 text-xs uppercase tracking-[0.25em] text-hatym-ink/60">
+              {page.status === "completed" ? t.pageStatusCompleted : t.pageStatusAssigned}
+            </div>
+            <Link
+              href={page.status === "assigned" && page.claimToken ? `/read/${sessionId}/${page.pageNumber}` : "#"}
+              className={`mt-4 inline-flex rounded-full px-5 py-2 text-sm font-semibold uppercase tracking-wide ${
+                page.status === "assigned" && page.claimToken
+                  ? "bg-hatym-ink text-white"
+                  : "pointer-events-none border border-hatym-ink/30 text-hatym-ink/50"
+              }`}
+            >
+              {t.openMushaf}
+            </Link>
+          </div>
+        ))}
       </div>
-      <div className="text-xs text-hatym-ink/60">{t.resumeHint}</div>
+
+      <div className="max-w-md text-xs text-hatym-ink/60">{t.resumeHint}</div>
     </div>
   );
 }

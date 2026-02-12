@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Noto_Naskh_Arabic, Open_Sans } from "next/font/google";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getClaimToken, getOrCreateUserId, clearClaimToken } from "@/lib/browserStorage";
 import { resolveMushafUrl } from "@/lib/mushaf";
@@ -14,100 +13,48 @@ type CompleteResponse = {
   finished: boolean | null;
 };
 
+type LiveAssignmentRow = {
+  assigned_to: string | null;
+  status: string | null;
+  claim_token: string | null;
+};
+
 type Props = {
   sessionId: string;
   pageNumber: number;
 };
 
-type Language = "en" | "kk";
-
-const LANG_KEY = "hatym_kiosk_lang";
-
-const COPY: Record<
-  Language,
-  {
-    mushafPage: string;
-    loading: string;
-    loadError: string;
-    invalidUrl: string;
-    unsupported: string;
-    fetchError: string;
-    notAssigned: string;
-    completedTitle: string;
-    completedHint: string;
-    back: string;
-    markCompleted: string;
-    completing: string;
-    completeError: string;
-  }
-> = {
-  en: {
-    mushafPage: "Mushaf page",
-    loading: "Loading page…",
-    loadError: "Unable to load the mushaf page.",
-    invalidUrl: "Invalid mushaf URL for this page.",
-    unsupported: "Unsupported render type for this page.",
-    fetchError: "Unable to fetch mushaf JSON.",
-    notAssigned: "This page is not assigned to you. Please go back and claim it again.",
-    completedTitle: "Completed.",
-    completedHint: "Scan QR again to get the next page.",
-    back: "Back",
-    markCompleted: "Mark as completed",
-    completing: "Completing...",
-    completeError: "Unable to complete this page. Please scan again."
-  },
-  kk: {
-    mushafPage: "Мұсхаф беті",
-    loading: "Бет жүктелуде…",
-    loadError: "Мұсхаф бетін жүктеу мүмкін болмады.",
-    invalidUrl: "Бұл бет үшін мұсхаф URL дұрыс емес.",
-    unsupported: "Бұл бет үшін көрсету форматының қолдауы жоқ.",
-    fetchError: "Мұсхаф JSON жүктеу мүмкін болмады.",
-    notAssigned: "Бұл бет сізге тағайындалмаған. Артқа қайтып, қайта алыңыз.",
-    completedTitle: "Аяқталды.",
-    completedHint: "Келесі бетті алу үшін QR-кодты қайта сканерлеңіз.",
-    back: "Артқа",
-    markCompleted: "Аяқталды деп белгілеу",
-    completing: "Белгіленуде...",
-    completeError: "Бұл бетті аяқтау мүмкін болмады. QR-кодты қайта сканерлеңіз."
-  }
+const COPY = {
+  mushafPage: "Мұсхаф беті",
+  loading: "Бет жүктелуде…",
+  loadError: "Мұсхаф бетін жүктеу мүмкін болмады.",
+  invalidUrl: "Бұл бет үшін мұсхаф URL дұрыс емес.",
+  unsupported: "Бұл бет үшін көрсету форматының қолдауы жоқ.",
+  fetchError: "Мұсхаф JSON жүктеу мүмкін болмады.",
+  notAssigned: "Бұл бет қазір сізге тағайындалмаған. Беттер тізіміне қайтыңыз.",
+  completedTitle: "Аяқталды.",
+  completedHint: "Осы сессиядағы қалған беттерді ашу үшін артқа қайтыңыз.",
+  back: "Артқа",
+  markCompleted: "Аяқталды деп белгілеу",
+  completing: "Белгіленуде...",
+  completeError: "Бұл бетті аяқтау мүмкін болмады. Тағайындау мерзімі өтіп кеткен болуы мүмкін."
 };
-
-const arabicFont = Noto_Naskh_Arabic({
-  subsets: ["arabic"],
-  weight: ["400", "600"],
-  display: "swap"
-});
-
-const kkSans = Open_Sans({
-  subsets: ["cyrillic"],
-  weight: ["400", "600"],
-  display: "swap"
-});
 
 export default function ReaderClient({ sessionId, pageNumber }: Props) {
   const supabase = getSupabaseBrowserClient();
   const router = useRouter();
-  const [lang, setLang] = useState<Language>("en");
   const [userId, setUserId] = useState("");
   const [claimToken, setClaimToken] = useState<string | null>(null);
   const [mushafData, setMushafData] = useState<unknown | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "completed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
-  const t = COPY[lang];
+  const t = COPY;
 
   useEffect(() => {
     setUserId(getOrCreateUserId());
     setClaimToken(getClaimToken(sessionId, pageNumber));
   }, [sessionId, pageNumber]);
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(LANG_KEY);
-    if (stored === "en" || stored === "kk") {
-      setLang(stored);
-    }
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -145,7 +92,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
       try {
         const response = await fetch(resolvedUrl, { cache: "no-store" });
         if (!response.ok) {
-          throw new Error(`Failed to fetch mushaf JSON (HTTP ${response.status})`);
+          throw new Error(`${t.fetchError} (HTTP ${response.status})`);
         }
         const json = (await response.json()) as unknown;
         if (!isMounted) return;
@@ -165,20 +112,71 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
     };
   }, [pageNumber, supabase]);
 
+  useEffect(() => {
+    if (!userId) return;
+    let isMounted = true;
+
+    async function syncLiveClaimToken() {
+      const { data, error: tokenError } = await supabase
+        .from("hatym_pages")
+        .select("assigned_to,status,claim_token")
+        .eq("session_id", sessionId)
+        .eq("page_number", pageNumber)
+        .maybeSingle();
+
+      if (!isMounted || tokenError) return;
+      const row = (data ?? null) as LiveAssignmentRow | null;
+      if (!row || row.status !== "assigned" || row.assigned_to !== userId || !row.claim_token) {
+        setClaimToken(null);
+        return;
+      }
+      setClaimToken(row.claim_token);
+    }
+
+    syncLiveClaimToken();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pageNumber, sessionId, supabase, userId]);
+
   const canComplete = useMemo(() => {
     return Boolean(claimToken && userId && status === "ready" && !isCompleting);
   }, [claimToken, userId, status, isCompleting]);
 
   async function handleComplete() {
-    if (!canComplete || !claimToken) return;
+    if (!canComplete) return;
     setIsCompleting(true);
     setError(null);
+
+    const { data: claimData, error: claimError } = await supabase
+      .from("hatym_pages")
+      .select("assigned_to,status,claim_token")
+      .eq("session_id", sessionId)
+      .eq("page_number", pageNumber)
+      .maybeSingle();
+
+    if (claimError) {
+      setError(claimError.message);
+      setIsCompleting(false);
+      return;
+    }
+
+    const claimRow = (claimData ?? null) as LiveAssignmentRow | null;
+    if (!claimRow || claimRow.status !== "assigned" || claimRow.assigned_to !== userId || !claimRow.claim_token) {
+      setClaimToken(null);
+      setError(t.notAssigned);
+      setIsCompleting(false);
+      return;
+    }
+
+    setClaimToken(claimRow.claim_token);
 
     const { data, error: completeError } = await supabase.rpc("complete_page", {
       p_session_id: sessionId,
       p_page_number: pageNumber,
       p_user_id: userId,
-      p_claim_token: claimToken
+      p_claim_token: claimRow.claim_token
     });
 
     if (completeError) {
@@ -209,11 +207,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
 
   if (status === "completed") {
     return (
-      <div
-        className={`min-h-screen flex flex-col items-center justify-center gap-4 bg-white px-6 text-center text-hatym-ink dark:bg-slate-950 dark:text-slate-100 ${
-          lang === "kk" ? kkSans.className : ""
-        }`}
-      >
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white px-6 text-center text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
         <div className="text-2xl font-semibold">{t.completedTitle}</div>
         <div className="text-sm text-hatym-ink/70 dark:text-slate-300">{t.completedHint}</div>
         <button
@@ -227,11 +221,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   }
 
   return (
-    <div
-      className={`min-h-screen bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100 ${
-        lang === "kk" ? kkSans.className : ""
-      }`}
-    >
+    <div className="min-h-screen bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
       <div className="px-5 pb-28 pt-8">
         <div className="mx-auto flex max-w-xl flex-col gap-6">
           <div className="text-center">
@@ -255,7 +245,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
 
           {status === "ready" && mushafData ? (
             <div className="rounded-[2.5rem] border border-black/10 bg-white/95 p-6 shadow-sm dark:border-white/10 dark:bg-white/5 sm:p-10">
-              <MushafPageRenderer data={mushafData} className={arabicFont.className} />
+              <MushafPageRenderer data={mushafData} className="font-serif" />
             </div>
           ) : null}
 
@@ -268,20 +258,25 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 border-t border-black/10 bg-white/90 px-4 py-4 backdrop-blur dark:border-white/10 dark:bg-slate-900/90">
-        <div className="mx-auto flex max-w-xl items-center gap-3">
-          <button
-            onClick={handleBack}
-            className="flex-1 rounded-full border border-hatym-ink px-4 py-3 text-xs font-semibold uppercase tracking-wide dark:border-white"
-          >
-            {t.back}
-          </button>
-          <button
-            onClick={handleComplete}
-            disabled={!canComplete}
-            className="flex-[1.4] rounded-full bg-hatym-ink px-4 py-3 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-50 dark:bg-white dark:text-slate-900"
-          >
-            {isCompleting ? t.completing : t.markCompleted}
-          </button>
+        <div className="mx-auto max-w-xl">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleBack}
+              className="flex-1 rounded-full border border-hatym-ink px-4 py-3 text-xs font-semibold uppercase tracking-wide dark:border-white"
+            >
+              {t.back}
+            </button>
+            <button
+              onClick={handleComplete}
+              disabled={!canComplete}
+              className="flex-[1.4] rounded-full bg-hatym-ink px-4 py-3 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-50 dark:bg-white dark:text-slate-900"
+            >
+              {isCompleting ? t.completing : t.markCompleted}
+            </button>
+          </div>
+          {status !== "error" && error ? (
+            <div className="mt-2 text-center text-xs text-red-700 dark:text-red-300">{error}</div>
+          ) : null}
         </div>
       </div>
     </div>
