@@ -28,7 +28,7 @@ type Props = {
 };
 
 const COPY = {
-  scanPrompt: "Скан жасап, келесі бетті ал",
+  scanPrompt: "Скан жасап, хатымға қатыс!",
   completedCount: "аяқталды",
   perUserLimit: "Бір адамға бет саны",
   pageDashboard: "Беттер панелі",
@@ -42,7 +42,7 @@ const COPY = {
   startNewSession: "Жаңа хатым сессиясын бастау",
   starting: "Басталуда...",
   ringLabel: "аяқталды",
-  ringCaption: "Хатым орындалуы"
+  ringCaption: "Хатым оқылуы"
 };
 
 function useWindowSize() {
