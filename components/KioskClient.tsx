@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import Confetti from "react-confetti";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ASSIGNMENT_TTL_MINUTES, MAX_PAGES_PER_USER, TOTAL_PAGES } from "@/lib/constants";
+import { MAX_PAGES_PER_USER, TOTAL_PAGES } from "@/lib/constants";
 import ProgressRing from "@/components/ProgressRing";
 
 const statusColors: Record<string, string> = {
@@ -82,18 +82,6 @@ export default function KioskClient({ sessionId }: Props) {
         setLoading(true);
       }
       setError(null);
-
-      const { error: releaseError } = await supabase.rpc("release_expired_assignments", {
-        p_session_id: sessionId,
-        p_ttl_minutes: ASSIGNMENT_TTL_MINUTES
-      });
-      if (releaseError) {
-        setError(releaseError.message);
-        if (showLoading) {
-          setLoading(false);
-        }
-        return;
-      }
 
       const { data, error: fetchError } = await supabase
         .from("hatym_pages")

@@ -90,22 +90,9 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_now timestamptz := now();
-  v_ttl interval := make_interval(mins => p_ttl_minutes);
-  v_released int := 0;
 begin
-  update hatym_pages hp
-  set status = 'available',
-      assigned_to = null,
-      assigned_at = null,
-      claim_token = null
-  where hp.session_id = p_session_id
-    and hp.status = 'assigned'
-    and hp.assigned_at < v_now - v_ttl;
-
-  get diagnostics v_released = row_count;
-  return v_released;
+  -- TTL behavior disabled: assignments do not expire automatically.
+  return 0;
 end;
 $$;
 
@@ -126,7 +113,6 @@ set search_path = public
 as $$
 declare
   v_now timestamptz := now();
-  v_ttl interval := make_interval(mins => p_ttl_minutes);
   v_page record;
   v_session_active boolean;
   v_claimed_count int := 0;
@@ -143,9 +129,6 @@ begin
 
   -- Serialize claims for the same user in the same session.
   perform pg_advisory_xact_lock(hashtext(p_session_id::text || ':' || p_user_id));
-
-  -- Take back expired assignments so they become available again.
-  perform release_expired_assignments(p_session_id, p_ttl_minutes);
 
   select count(*)
   into v_claimed_count
@@ -252,7 +235,6 @@ begin
     and hp.page_number = p_page_number
     and hp.status = 'assigned'
     and hp.assigned_to = p_user_id
-    and hp.assigned_at >= now() - interval '15 minute'
     and hp.claim_token = p_claim_token
   returning 1 into v_updated;
 
