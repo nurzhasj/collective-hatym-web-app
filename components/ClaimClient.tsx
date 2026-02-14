@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { MAX_PAGES_PER_USER } from "@/lib/constants";
+import { ASSIGNMENT_TTL_MINUTES, MAX_PAGES_PER_USER } from "@/lib/constants";
 import { clearClaimToken, getOrCreateUserId, storeClaimToken } from "@/lib/browserStorage";
 
 type ClaimResponse = {
@@ -60,7 +60,8 @@ export default function ClaimClient({ sessionId }: Props) {
       setError(null);
       const { data, error: claimError } = await supabase.rpc("claim_next_page", {
         p_session_id: sessionId,
-        p_user_id: userId
+        p_user_id: userId,
+        p_ttl_minutes: ASSIGNMENT_TTL_MINUTES
       });
 
       if (!isMounted) return;

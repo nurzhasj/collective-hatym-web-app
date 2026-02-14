@@ -34,6 +34,7 @@ create table if not exists hatym_claim_events (
 );
 
 -- Indexes
+drop index if exists hatym_sessions_single_active_idx;
 create index if not exists hatym_pages_session_status_idx on hatym_pages (session_id, status);
 create index if not exists hatym_pages_session_assigned_at_idx on hatym_pages (session_id, assigned_at);
 create index if not exists hatym_pages_session_assigned_to_status_idx on hatym_pages (session_id, assigned_to, status);
@@ -73,9 +74,9 @@ begin
   insert into hatym_sessions (is_active) values (true) returning id into v_session_id;
 
   insert into hatym_pages (session_id, page_number, status)
-  select v_session_id, page_number, 'available'
-  from quran_pages
-  order by page_number;
+  select v_session_id, qp.page_number, 'available'
+  from quran_pages qp
+  on conflict (session_id, page_number) do nothing;
 
   return v_session_id;
 end;
@@ -83,23 +84,63 @@ $$;
 
 create or replace function release_expired_assignments(
   p_session_id uuid,
-  p_ttl_minutes int default 15
+  p_ttl_minutes int default 10
 )
 returns int
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_now timestamptz := now();
+  v_ttl interval := make_interval(mins => greatest(p_ttl_minutes, 0));
+  v_updated int := 0;
+  v_completed int := 0;
+  v_session_active boolean;
 begin
-  -- TTL behavior disabled: assignments do not expire automatically.
-  return 0;
+  select hs.is_active
+  into v_session_active
+  from hatym_sessions hs
+  where hs.id = p_session_id;
+
+  if v_session_active is distinct from true then
+    return 0;
+  end if;
+
+  update hatym_pages hp
+  set status = 'completed',
+      completed_at = coalesce(hp.completed_at, v_now)
+  where hp.session_id = p_session_id
+    and hp.status = 'assigned'
+    and hp.assigned_at is not null
+    and hp.assigned_at <= v_now - v_ttl;
+
+  get diagnostics v_updated = row_count;
+
+  if v_updated > 0 then
+    select count(*)
+    into v_completed
+    from hatym_pages hp
+    where hp.session_id = p_session_id
+      and hp.status = 'completed';
+
+    if v_completed >= 604 then
+      update hatym_sessions hs
+      set completed_at = coalesce(hs.completed_at, v_now),
+          is_active = false
+      where hs.id = p_session_id
+        and hs.completed_at is null;
+    end if;
+  end if;
+
+  return v_updated;
 end;
 $$;
 
 create or replace function claim_next_page(
   p_session_id uuid,
   p_user_id text,
-  p_ttl_minutes int default 15
+  p_ttl_minutes int default 10
 )
 returns table (
   page_number int,
@@ -126,6 +167,8 @@ begin
     return next;
     return;
   end if;
+
+  perform release_expired_assignments(p_session_id, p_ttl_minutes);
 
   -- Serialize claims for the same user in the same session.
   perform pg_advisory_xact_lock(hashtext(p_session_id::text || ':' || p_user_id));
