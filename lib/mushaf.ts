@@ -64,21 +64,33 @@ function inferFromStoredUrl(storedUrl: string, pageNumber: number) {
   }
 }
 
-export function resolveMushafUrl(value: string | null | undefined, pageNumber: number) {
+function pushUnique(target: string[], candidate: string | null) {
+  if (candidate && !target.includes(candidate)) {
+    target.push(candidate);
+  }
+}
+
+export function resolveMushafUrls(value: string | null | undefined, pageNumber: number) {
+  const candidates: string[] = [];
+
   const template = process.env.NEXT_PUBLIC_MUSHAF_JSON_URL_TEMPLATE;
   if (template) {
     const viaTemplate = fromTemplate(template, pageNumber);
-    if (viaTemplate) return viaTemplate;
+    pushUnique(candidates, viaTemplate);
   }
 
   const base = process.env.NEXT_PUBLIC_MUSHAF_JSON_BASE_URL;
   if (base) {
     const viaBase = fromBase(base, pageNumber);
-    if (viaBase) return viaBase;
+    pushUnique(candidates, viaBase);
   }
 
   const viaStored = inferFromStoredUrl(value ?? "", pageNumber);
-  if (viaStored) return viaStored;
+  pushUnique(candidates, viaStored);
 
-  return null;
+  return candidates;
+}
+
+export function resolveMushafUrl(value: string | null | undefined, pageNumber: number) {
+  return resolveMushafUrls(value, pageNumber)[0] ?? null;
 }

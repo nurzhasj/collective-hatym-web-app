@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getClaimToken, getOrCreateUserId, clearClaimToken } from "@/lib/browserStorage";
-import { resolveMushafUrl } from "@/lib/mushaf";
+import { resolveMushafUrls } from "@/lib/mushaf";
 import MushafPageRenderer from "@/components/MushafPageRenderer";
 
 type CompleteResponse = {
@@ -77,27 +77,43 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         return;
       }
 
-      const resolvedUrl = resolveMushafUrl(data.mushaf_url, pageNumber);
-      if (!resolvedUrl) {
+      const resolvedUrls = resolveMushafUrls(data.mushaf_url, pageNumber);
+      if (!resolvedUrls.length) {
         setError(t.invalidUrl);
         setStatus("error");
         return;
       }
 
-      try {
-        const response = await fetch(resolvedUrl, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`${t.fetchError} (HTTP ${response.status})`);
+      let lastHttpStatus: number | null = null;
+      let parseErrorSeen = false;
+
+      for (const url of resolvedUrls) {
+        try {
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) {
+            lastHttpStatus = response.status;
+            continue;
+          }
+
+          const json = (await response.json()) as unknown;
+          if (!isMounted) return;
+          setMushafData(json);
+          setStatus("ready");
+          return;
+        } catch {
+          parseErrorSeen = true;
         }
-        const json = (await response.json()) as unknown;
-        if (!isMounted) return;
-        setMushafData(json);
-        setStatus("ready");
-      } catch (err) {
-        if (!isMounted) return;
-        setError(err instanceof Error ? err.message : t.fetchError);
-        setStatus("error");
       }
+
+      if (!isMounted) return;
+      if (lastHttpStatus) {
+        setError(`${t.fetchError} (HTTP ${lastHttpStatus})`);
+      } else if (parseErrorSeen) {
+        setError(`${t.fetchError} (JSON parse error)`);
+      } else {
+        setError(t.fetchError);
+      }
+      setStatus("error");
     }
 
     loadPage();
