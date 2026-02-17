@@ -85,6 +85,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
       }
 
       let lastHttpStatus: number | null = null;
+      let lastFailedUrl: string | null = null;
       let parseErrorSeen = false;
 
       for (const url of resolvedUrls) {
@@ -92,6 +93,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
           const response = await fetch(url, { cache: "no-store" });
           if (!response.ok) {
             lastHttpStatus = response.status;
+            lastFailedUrl = url;
             continue;
           }
 
@@ -107,7 +109,8 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
 
       if (!isMounted) return;
       if (lastHttpStatus) {
-        setError(`${t.fetchError} (HTTP ${lastHttpStatus})`);
+        const suffix = lastFailedUrl ? `\nURL: ${lastFailedUrl}` : "";
+        setError(`${t.fetchError} (HTTP ${lastHttpStatus})${suffix}`);
       } else if (parseErrorSeen) {
         setError(`${t.fetchError} (JSON parse error)`);
       } else {

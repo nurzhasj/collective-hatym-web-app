@@ -15,52 +15,116 @@ function padPage(pageNumber: number) {
   return String(pageNumber).padStart(3, "0");
 }
 
+function getPageFilenameVariants(pageNumber: number) {
+  const page = String(pageNumber);
+  const padded = padPage(pageNumber);
+  return [`page-${padded}.json`, `${page}.json`, `${padded}.json`, `page-${page}.json`];
+}
+
+function ensureTrailingSlash(pathname: string) {
+  return pathname.endsWith("/") ? pathname : `${pathname}/`;
+}
+
+function replaceLastSegment(pathname: string, fileName: string) {
+  const lastSlash = pathname.lastIndexOf("/");
+  if (lastSlash < 0) return `/${fileName}`;
+  return `${pathname.slice(0, lastSlash + 1)}${fileName}`;
+}
+
+function buildUrlWithPath(url: URL, pathname: string) {
+  const next = new URL(url.toString());
+  next.pathname = pathname;
+  return toHttpUrl(next.toString());
+}
+
+function getFolderVariants(folderPath: string) {
+  const variants: string[] = [folderPath];
+  const swaps: Array<[string, string]> = [
+    ["/mushaf-img/", "/mushaf-json/"],
+    ["/mushaf-image/", "/mushaf-json/"],
+    ["/mushaf-images/", "/mushaf-json/"],
+    ["/mushaf-pages/", "/mushaf-json/"],
+    ["/images/", "/mushaf-json/"],
+    ["/img/", "/mushaf-json/"]
+  ];
+
+  for (const [from, to] of swaps) {
+    if (folderPath.includes(from)) {
+      variants.push(folderPath.replace(from, to));
+    }
+  }
+
+  if (!folderPath.includes("/mushaf-json/") && /\/mushaf-[^/]+\//.test(folderPath)) {
+    variants.push(folderPath.replace(/\/mushaf-[^/]+\//, "/mushaf-json/"));
+  }
+
+  return Array.from(new Set(variants));
+}
+
 function fromTemplate(template: string, pageNumber: number) {
   const padded = padPage(pageNumber);
   const next = template
     .replaceAll("{page}", String(pageNumber))
     .replaceAll("{page_padded}", padded)
     .replaceAll("{page3}", padded);
-  return toHttpUrl(next);
+  const resolved = toHttpUrl(next);
+  return resolved ? [resolved] : [];
 }
 
 function fromBase(baseUrl: string, pageNumber: number) {
   try {
     const base = new URL(baseUrl);
-    const normalizedPath = base.pathname.endsWith("/") ? base.pathname : `${base.pathname}/`;
-    base.pathname = `${normalizedPath}page-${padPage(pageNumber)}.json`;
-    return toHttpUrl(base.toString());
+    const hasFileLikeName = /\.[A-Za-z0-9]+$/.test(base.pathname);
+    const folder = ensureTrailingSlash(
+      hasFileLikeName ? base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1) : base.pathname
+    );
+    const candidates: string[] = [];
+    for (const fileName of getPageFilenameVariants(pageNumber)) {
+      const next = buildUrlWithPath(base, `${folder}${fileName}`);
+      if (next) candidates.push(next);
+    }
+    return candidates;
   } catch {
-    return null;
+    return [];
   }
 }
 
 function inferFromStoredUrl(storedUrl: string, pageNumber: number) {
   const jsonUrl = toHttpUrl(storedUrl);
-  if (!jsonUrl) return null;
-  if (jsonUrl.toLowerCase().endsWith(".json")) return jsonUrl;
+  if (!jsonUrl) return [];
 
   try {
     const url = new URL(jsonUrl);
     const imageExtPattern = /\.(png|jpe?g|webp|avif|gif)$/i;
+    const candidates: string[] = [];
 
-    if (imageExtPattern.test(url.pathname)) {
-      // Common Supabase path swap: .../<images-folder>/page-001.png -> .../mushaf-json/page-001.json
-      if (url.pathname.includes("/mushaf-images/")) {
-        url.pathname = url.pathname.replace("/mushaf-images/", "/mushaf-json/");
-      } else if (url.pathname.includes("/mushaf-pages/")) {
-        url.pathname = url.pathname.replace("/mushaf-pages/", "/mushaf-json/");
+    const lastSlash = url.pathname.lastIndexOf("/");
+    const folder = lastSlash >= 0 ? url.pathname.slice(0, lastSlash + 1) : "/";
+    const fileName = lastSlash >= 0 ? url.pathname.slice(lastSlash + 1) : url.pathname;
+
+    const fileNameVariants: string[] = [];
+    if (fileName.toLowerCase().endsWith(".json")) {
+      fileNameVariants.push(fileName);
+    }
+    if (imageExtPattern.test(fileName)) {
+      fileNameVariants.push(fileName.replace(imageExtPattern, ".json"));
+    }
+    fileNameVariants.push(...getPageFilenameVariants(pageNumber));
+
+    const uniqueFileNames = Array.from(new Set(fileNameVariants));
+    const folderVariants = getFolderVariants(folder);
+
+    for (const folderVariant of folderVariants) {
+      for (const candidateName of uniqueFileNames) {
+        const nextPath = replaceLastSegment(`${folderVariant}${candidateName}`, candidateName);
+        const next = buildUrlWithPath(url, nextPath);
+        if (next) candidates.push(next);
       }
-
-      // Keep file stem, normalize extension to .json, and align with page number.
-      url.pathname = url.pathname.replace(imageExtPattern, ".json");
-      url.pathname = url.pathname.replace(/page-\d{1,3}\.json$/i, `page-${padPage(pageNumber)}.json`);
-      return toHttpUrl(url.toString());
     }
 
-    return null;
+    return Array.from(new Set(candidates));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -75,18 +139,21 @@ export function resolveMushafUrls(value: string | null | undefined, pageNumber: 
 
   const template = process.env.NEXT_PUBLIC_MUSHAF_JSON_URL_TEMPLATE;
   if (template) {
-    const viaTemplate = fromTemplate(template, pageNumber);
-    pushUnique(candidates, viaTemplate);
+    for (const viaTemplate of fromTemplate(template, pageNumber)) {
+      pushUnique(candidates, viaTemplate);
+    }
   }
 
   const base = process.env.NEXT_PUBLIC_MUSHAF_JSON_BASE_URL;
   if (base) {
-    const viaBase = fromBase(base, pageNumber);
-    pushUnique(candidates, viaBase);
+    for (const viaBase of fromBase(base, pageNumber)) {
+      pushUnique(candidates, viaBase);
+    }
   }
 
-  const viaStored = inferFromStoredUrl(value ?? "", pageNumber);
-  pushUnique(candidates, viaStored);
+  for (const viaStored of inferFromStoredUrl(value ?? "", pageNumber)) {
+    pushUnique(candidates, viaStored);
+  }
 
   return candidates;
 }
