@@ -12,8 +12,8 @@ create table if not exists hatym_sessions (
 create table if not exists quran_pages (
   page_number int primary key,
   mushaf_url text not null,
-  render_type text not null default 'image',
-  constraint quran_pages_render_type_check check (render_type in ('image', 'json'))
+  render_type text not null default 'json',
+  constraint quran_pages_render_type_check check (render_type = 'json')
 );
 
 -- Schema upgrades for existing databases (create table if not exists won't alter old tables).
@@ -25,31 +25,23 @@ set render_type = lower(btrim(render_type))
 where render_type is not null;
 
 update quran_pages
-set render_type = 'image'
+set render_type = 'json'
 where render_type is null
   or btrim(render_type) = ''
-  or render_type not in ('image', 'json');
+  or render_type <> 'json';
 
 alter table quran_pages
-  alter column render_type set default 'image';
+  alter column render_type set default 'json';
 
 alter table quran_pages
   alter column render_type set not null;
 
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'quran_pages_render_type_check'
-      and conrelid = 'quran_pages'::regclass
-  ) then
-    alter table quran_pages
-      add constraint quran_pages_render_type_check
-      check (render_type in ('image', 'json'));
-  end if;
-end
-$$;
+alter table quran_pages
+  drop constraint if exists quran_pages_render_type_check;
+
+alter table quran_pages
+  add constraint quran_pages_render_type_check
+  check (render_type = 'json');
 
 create table if not exists hatym_pages (
   session_id uuid not null references hatym_sessions(id) on delete cascade,

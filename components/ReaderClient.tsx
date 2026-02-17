@@ -6,7 +6,6 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getClaimToken, getOrCreateUserId, clearClaimToken } from "@/lib/browserStorage";
 import { resolveMushafUrl } from "@/lib/mushaf";
 import MushafPageRenderer from "@/components/MushafPageRenderer";
-import MushafImageRenderer from "@/components/MushafImageRenderer";
 
 type CompleteResponse = {
   status: string | null;
@@ -25,22 +24,11 @@ type Props = {
   pageNumber: number;
 };
 
-type MushafContent =
-  | {
-      kind: "image";
-      src: string;
-    }
-  | {
-      kind: "json";
-      data: unknown;
-    };
-
 const COPY = {
   mushafPage: "Мұсхаф беті",
   loading: "Бет жүктелуде…",
   loadError: "Мұсхаф бетін жүктеу мүмкін болмады.",
   invalidUrl: "Бұл бет үшін мұсхаф URL дұрыс емес.",
-  unsupported: "Бұл бет үшін көрсету форматының қолдауы жоқ.",
   fetchError: "Мұсхаф JSON жүктеу мүмкін болмады.",
   notAssigned: "Бұл бет қазір сізге тағайындалмаған. Беттер тізіміне қайтыңыз.",
   completedTitle: "Аяқталды.",
@@ -56,7 +44,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   const router = useRouter();
   const [userId, setUserId] = useState("");
   const [claimToken, setClaimToken] = useState<string | null>(null);
-  const [mushafContent, setMushafContent] = useState<MushafContent | null>(null);
+  const [mushafData, setMushafData] = useState<unknown | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "completed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -73,26 +61,17 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
     async function loadPage() {
       setStatus("loading");
       setError(null);
-      setMushafContent(null);
+      setMushafData(null);
 
       const { data, error: pageError } = await supabase
         .from("quran_pages")
-        .select("page_number,mushaf_url,render_type")
+        .select("page_number,mushaf_url")
         .eq("page_number", pageNumber)
         .single();
 
       if (!isMounted) return;
       if (pageError || !data) {
         setError(pageError?.message || t.loadError);
-        setStatus("error");
-        return;
-      }
-
-      const renderTypeRaw = typeof data.render_type === "string" ? data.render_type.trim().toLowerCase() : "";
-      const renderType = renderTypeRaw || "image";
-
-      if (renderType !== "image" && renderType !== "json") {
-        setError(t.unsupported);
         setStatus("error");
         return;
       }
@@ -104,12 +83,6 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         return;
       }
 
-      if (renderType === "image") {
-        setMushafContent({ kind: "image", src: resolvedUrl });
-        setStatus("ready");
-        return;
-      }
-
       try {
         const response = await fetch(resolvedUrl, { cache: "no-store" });
         if (!response.ok) {
@@ -117,7 +90,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         }
         const json = (await response.json()) as unknown;
         if (!isMounted) return;
-        setMushafContent({ kind: "json", data: json });
+        setMushafData(json);
         setStatus("ready");
       } catch (err) {
         if (!isMounted) return;
@@ -264,13 +237,9 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
             </div>
           ) : null}
 
-          {status === "ready" && mushafContent?.kind === "image" ? (
-            <MushafImageRenderer src={mushafContent.src} pageNumber={pageNumber} />
-          ) : null}
-
-          {status === "ready" && mushafContent?.kind === "json" ? (
+          {status === "ready" && mushafData ? (
             <div className="rounded-[2.5rem] border border-black/10 bg-white/95 p-6 shadow-sm dark:border-white/10 dark:bg-white/5 sm:p-10">
-              <MushafPageRenderer data={mushafContent.data} className="font-serif" />
+              <MushafPageRenderer data={mushafData} className="font-serif" />
             </div>
           ) : null}
 
