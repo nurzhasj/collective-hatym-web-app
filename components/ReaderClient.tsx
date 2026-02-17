@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getClaimToken, getOrCreateUserId, clearClaimToken } from "@/lib/browserStorage";
 import { resolveMushafUrl } from "@/lib/mushaf";
 import MushafPageRenderer from "@/components/MushafPageRenderer";
+import MushafImageRenderer from "@/components/MushafImageRenderer";
 
 type CompleteResponse = {
   status: string | null;
@@ -23,6 +24,16 @@ type Props = {
   sessionId: string;
   pageNumber: number;
 };
+
+type MushafContent =
+  | {
+      kind: "image";
+      src: string;
+    }
+  | {
+      kind: "json";
+      data: unknown;
+    };
 
 const COPY = {
   mushafPage: "Мұсхаф беті",
@@ -45,7 +56,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   const router = useRouter();
   const [userId, setUserId] = useState("");
   const [claimToken, setClaimToken] = useState<string | null>(null);
-  const [mushafData, setMushafData] = useState<unknown | null>(null);
+  const [mushafContent, setMushafContent] = useState<MushafContent | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "completed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -62,6 +73,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
     async function loadPage() {
       setStatus("loading");
       setError(null);
+      setMushafContent(null);
 
       const { data, error: pageError } = await supabase
         .from("quran_pages")
@@ -76,7 +88,10 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         return;
       }
 
-      if (data.render_type && data.render_type !== "json") {
+      const renderTypeRaw = typeof data.render_type === "string" ? data.render_type.trim().toLowerCase() : "";
+      const renderType = renderTypeRaw || "image";
+
+      if (renderType !== "image" && renderType !== "json") {
         setError(t.unsupported);
         setStatus("error");
         return;
@@ -89,6 +104,12 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         return;
       }
 
+      if (renderType === "image") {
+        setMushafContent({ kind: "image", src: resolvedUrl });
+        setStatus("ready");
+        return;
+      }
+
       try {
         const response = await fetch(resolvedUrl, { cache: "no-store" });
         if (!response.ok) {
@@ -96,7 +117,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         }
         const json = (await response.json()) as unknown;
         if (!isMounted) return;
-        setMushafData(json);
+        setMushafContent({ kind: "json", data: json });
         setStatus("ready");
       } catch (err) {
         if (!isMounted) return;
@@ -243,9 +264,13 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
             </div>
           ) : null}
 
-          {status === "ready" && mushafData ? (
+          {status === "ready" && mushafContent?.kind === "image" ? (
+            <MushafImageRenderer src={mushafContent.src} pageNumber={pageNumber} />
+          ) : null}
+
+          {status === "ready" && mushafContent?.kind === "json" ? (
             <div className="rounded-[2.5rem] border border-black/10 bg-white/95 p-6 shadow-sm dark:border-white/10 dark:bg-white/5 sm:p-10">
-              <MushafPageRenderer data={mushafData} className="font-serif" />
+              <MushafPageRenderer data={mushafContent.data} className="font-serif" />
             </div>
           ) : null}
 

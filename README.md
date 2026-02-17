@@ -21,7 +21,9 @@ Production-ready kiosk + phone flow for collective Quran hatym page distribution
    - CSV must include at least:
      - `page_number` (int 1..604)
      - `mushaf_url` (text)
-   - `mushaf_url` must already be a **full public JSON URL** (e.g. `.../mushaf-json/page-001.json`).
+     - `render_type` (`image` or `json`)
+   - For `render_type = image`, `mushaf_url` must be a **full public page image URL** (recommended WebP/PNG on stable CDN or Supabase Storage public URL).
+   - For `render_type = json`, `mushaf_url` remains a **full public JSON URL** (e.g. `.../mushaf-json/page-001.json`).
 
 4) Ensure Realtime is enabled for `hatym_pages`.
    - Database → Replication → Add `hatym_pages` to the publication (if not already).
@@ -61,5 +63,7 @@ npm run dev
 ## Reader flow
 
 - After claiming, users open `/read/{sessionId}/{pageNumber}` inside the app.
-- The reader fetches `quran_pages.mushaf_url` (full public JSON URL) and renders the page as RTL Arabic text.
+- The reader fetches `quran_pages` row (`mushaf_url`, `render_type`) for the page.
+- If `render_type` is `image` (or empty), it renders the page image directly.
+- If `render_type` is `json`, it fetches JSON and renders the page as RTL Arabic text.
 - Completion happens via RPC (`complete_page`) from the reader or the claim page.
