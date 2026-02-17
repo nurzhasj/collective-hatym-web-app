@@ -28,7 +28,8 @@ const COPY = {
   mushafPage: "Мұсхаф беті",
   loading: "Бет жүктелуде…",
   loadError: "Мұсхаф бетін жүктеу мүмкін болмады.",
-  invalidUrl: "Бұл бет үшін мұсхаф URL дұрыс емес.",
+  invalidUrl:
+    "Бұл бет үшін мушаф JSON URL табылмады. NEXT_PUBLIC_MUSHAF_JSON_BASE_URL немесе NEXT_PUBLIC_MUSHAF_JSON_URL_TEMPLATE орнатыңыз.",
   fetchError: "Мұсхаф JSON жүктеу мүмкін болмады.",
   notAssigned: "Бұл бет қазір сізге тағайындалмаған. Беттер тізіміне қайтыңыз.",
   completedTitle: "Аяқталды.",
@@ -76,7 +77,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         return;
       }
 
-      const resolvedUrl = resolveMushafUrl(data.mushaf_url);
+      const resolvedUrl = resolveMushafUrl(data.mushaf_url, pageNumber);
       if (!resolvedUrl) {
         setError(t.invalidUrl);
         setStatus("error");

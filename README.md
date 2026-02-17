@@ -35,9 +35,14 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+NEXT_PUBLIC_MUSHAF_JSON_BASE_URL=https://your-project.supabase.co/storage/v1/object/public/your-bucket/mushaf-json
+# optional override (higher priority than BASE_URL):
+# NEXT_PUBLIC_MUSHAF_JSON_URL_TEMPLATE=https://your-project.supabase.co/storage/v1/object/public/your-bucket/mushaf-json/page-{page_padded}.json
 ```
 
 - `SUPABASE_SERVICE_ROLE_KEY` is used **server-side only** to create and seed sessions.
+- `NEXT_PUBLIC_MUSHAF_JSON_BASE_URL` lets the reader build JSON URLs as `.../page-001.json` by page number.
+- `NEXT_PUBLIC_MUSHAF_JSON_URL_TEMPLATE` is optional and supports `{page}` and `{page_padded}` placeholders.
 
 ## Run locally
 
