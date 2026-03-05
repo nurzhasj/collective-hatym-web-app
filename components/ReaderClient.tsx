@@ -261,9 +261,9 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         </div>
       ) : null}
 
-      {/* Mushaf — fills all remaining vertical space */}
+      {/* Mushaf — fills all remaining vertical space, capped width + auto padding */}
       {status === "ready" && mushafData ? (
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 px-2">
           {isQCF4Data(mushafData) ? (
             <QCF4PageRenderer data={mushafData} />
           ) : isQPCData(mushafData) ? (
@@ -271,13 +271,6 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
           ) : (
             <MushafPageRenderer data={mushafData} className="font-serif" />
           )}
-        </div>
-      ) : null}
-
-      {/* Not-assigned warning */}
-      {!claimToken ? (
-        <div className="mx-4 mb-2 rounded-2xl border border-amber-500/40 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-300/30 dark:bg-amber-500/10 dark:text-amber-100">
-          {t.notAssigned}
         </div>
       ) : null}
 

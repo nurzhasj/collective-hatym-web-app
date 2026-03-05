@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Fallback Unicode Arabic font while the QCF page font is loading
 const FALLBACK_FONT = "var(--font-arabic, serif)";
@@ -15,20 +15,23 @@ const fontUrl = (page: number) => `${QPC_FONTS_BASE}/p${page}.woff2`;
 
 const pageFontName = (page: number) => `p${page}-v2`;
 
+// Madinah Mushaf: every page has exactly 15 lines.
+const LINES_PER_PAGE = 15;
+
 // ---- Types (matches the JSON format from the user's 604 files) ----
 
 interface QPCWord {
   location: string;
-  word: string;    // plain Unicode Arabic — used as fallback
-  qpcV2?: string;  // QCF v2 glyph characters — authentic King Fahd rendering
+  word: string; // plain Unicode Arabic — used as fallback
+  qpcV2?: string; // QCF v2 glyph characters — authentic King Fahd rendering
 }
 
 interface QPCLine {
   line: number;
-  type: string;    // "surah-header" | "basmala" | "text"
+  type: string; // "surah-header" | "basmala" | "text"
   text?: string;
   words?: QPCWord[];
-  qpcV2?: string;  // line-level glyph string (used on basmala lines)
+  qpcV2?: string; // line-level glyph string (used on basmala lines)
 }
 
 export interface QPCPageData {
@@ -66,12 +69,13 @@ async function loadPageFont(page: number): Promise<void> {
 }
 
 // ---- Sub-components ----
+// All inherit fontSize from the grid container — no explicit font sizing needed.
 
 function SurahHeader({ text }: { text: string }) {
   return (
-    <div className="flex justify-center" style={{ margin: "0.5rem 0" }}>
+    <div className="flex justify-center">
       <div className="rounded-full border border-slate-300/60 bg-slate-100/80 px-6 py-1 text-center dark:border-white/20 dark:bg-white/10">
-        <span style={{ fontFamily: FALLBACK_FONT, fontSize: "1.3rem", fontWeight: 600 }}>
+        <span style={{ fontFamily: FALLBACK_FONT, fontWeight: 600 }}>
           {text}
         </span>
       </div>
@@ -89,10 +93,12 @@ function BasmalaLine({
   pageFont: string;
 }) {
   return (
-    <div style={{ textAlign: "center", direction: "rtl", fontSize: "clamp(1.3rem, 6.5vw, 2rem)", lineHeight: 1.15 }}>
+    <div style={{ textAlign: "center", direction: "rtl" }}>
       {fontLoaded && qpcV2 ? (
-        // Render authentic glyph string using the per-page font
-        <span dangerouslySetInnerHTML={{ __html: qpcV2 }} style={{ fontFamily: pageFont }} />
+        <span
+          dangerouslySetInnerHTML={{ __html: qpcV2 }}
+          style={{ fontFamily: pageFont }}
+        />
       ) : (
         <span style={{ fontFamily: FALLBACK_FONT }}>{BASMALA_FALLBACK}</span>
       )}
@@ -112,8 +118,12 @@ function TextLine({
   isShortLine: boolean;
 }) {
   if (!words.length) return null;
-  // Short/last lines right-align (flex-start = right in RTL); full lines justify.
-  const justify = words.length === 1 ? "center" : isShortLine ? "flex-start" : "space-between";
+  const justify =
+    words.length === 1
+      ? "center"
+      : isShortLine
+        ? "flex-start"
+        : "space-between";
 
   return (
     <div
@@ -122,20 +132,16 @@ function TextLine({
         flexDirection: "row",
         justifyContent: justify,
         direction: "rtl",
-        fontSize: "clamp(1.3rem, 6.5vw, 2rem)",
-        lineHeight: 1.15,
       }}
     >
       {words.map((w, i) =>
         fontLoaded && w.qpcV2 ? (
-          // Authentic QCF v2 glyph — same as quran.com rendering
           <span
             key={i}
             dangerouslySetInnerHTML={{ __html: w.qpcV2 }}
             style={{ fontFamily: pageFont }}
           />
         ) : (
-          // Fallback: plain Arabic Unicode with Amiri while font loads
           <span key={i} style={{ fontFamily: FALLBACK_FONT }}>
             {w.word}
           </span>
@@ -148,8 +154,6 @@ function TextLine({
 // ---- Line preprocessing ----
 
 // Merge single-word text lines (verse-end ornaments) into the previous text line.
-// In the Madinah Mushaf the ornament appears inline at the end of the verse's last line,
-// not on its own separate line.
 function mergeOrnamentLines(lines: QPCLine[]): QPCLine[] {
   const result: QPCLine[] = [];
   for (const line of lines) {
@@ -180,17 +184,32 @@ interface Props {
 }
 
 export default function QPCPageRenderer({ data, className }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [fontLoaded, setFontLoaded] = useState(false);
+  const [fontSize, setFontSize] = useState(16);
   const pageFont = pageFontName(data.page);
 
-  // Merge single-word ornament lines into their preceding text line.
   const lines = useMemo(() => mergeOrnamentLines(data.lines), [data.lines]);
 
-  // Index of the last text line — used to right-align the final (often short) line.
   const lastTextLineIdx = lines.reduce<number>(
     (last, line, i) => (line.type === "text" && line.words?.length ? i : last),
     -1
   );
+
+  // Dynamic font sizing: measure actual container, pick the smaller of
+  // width-based and height-based sizes so text never overflows.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      const byWidth = width * 0.056;
+      const byHeight = (height / LINES_PER_PAGE) * 0.58;
+      setFontSize(Math.max(12, Math.min(byWidth, byHeight)));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -205,14 +224,17 @@ export default function QPCPageRenderer({ data, className }: Props) {
 
   return (
     <div
+      ref={containerRef}
       lang="ar"
       className={className}
       style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
+        display: "grid",
+        gridTemplateRows: `repeat(${LINES_PER_PAGE}, 1fr)`,
+        alignItems: "center",
         height: "100%",
-        padding: "0 8px",
+        fontSize: `${fontSize}px`,
+        lineHeight: 1.15,
+        overflow: "hidden",
       }}
     >
       {lines.map((line, idx) => {
@@ -244,14 +266,16 @@ export default function QPCPageRenderer({ data, className }: Props) {
           );
         }
 
-        // Fallback for any other line with non-empty plain text
         const fallback = line.text?.trim();
         if (fallback) {
           return (
             <div
               key={line.line}
               dir="rtl"
-              style={{ textAlign: "right", fontFamily: FALLBACK_FONT, fontSize: "clamp(1rem, 4.5vw, 1.6rem)", lineHeight: 1.15 }}
+              style={{
+                textAlign: "center",
+                fontFamily: FALLBACK_FONT,
+              }}
             >
               {fallback}
             </div>
