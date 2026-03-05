@@ -239,7 +239,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
+    <div className="relative flex h-dvh flex-col bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
       {/* Page number header */}
       <div className="shrink-0 pb-1 pt-6 text-center">
         <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/50 dark:text-slate-400">
@@ -262,7 +262,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         </div>
       ) : null}
 
-      {/* Mushaf — tap to toggle bottom bar */}
+      {/* Mushaf — fills 100% of remaining space; tap toggles footer */}
       {status === "ready" && mushafData ? (
         <div className="min-h-0 flex-1 px-2" onClick={() => setShowBar((v) => !v)}>
           {isQCF4Data(mushafData) ? (
@@ -275,9 +275,9 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         </div>
       ) : null}
 
-      {/* Bottom action bar — slides in/out on tap */}
+      {/* Bottom action bar — fixed overlay, slides in/out on tap */}
       <div
-        className="shrink-0 border-t border-black/10 bg-white/90 px-4 pt-4 backdrop-blur dark:border-white/10 dark:bg-slate-900/90"
+        className="fixed bottom-0 left-0 right-0 border-t border-black/10 bg-white/90 px-4 pt-4 backdrop-blur dark:border-white/10 dark:bg-slate-900/90"
         style={{
           paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
           transform: showBar ? "translateY(0)" : "translateY(100%)",
