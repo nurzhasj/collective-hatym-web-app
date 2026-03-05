@@ -1,19 +1,12 @@
 "use client";
 
-<<<<<<< HEAD
-=======
 import Link from "next/link";
->>>>>>> 3e37cd6 (Added: menu for hatym)
 import { useEffect, useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import Confetti from "react-confetti";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-<<<<<<< HEAD
-import { ASSIGNMENT_TTL_MINUTES, MAX_PAGES_PER_USER, TOTAL_PAGES } from "@/lib/constants";
-=======
 import { TOTAL_PAGES } from "@/lib/constants";
 import { type SessionSettings } from "@/lib/sessionSettings";
->>>>>>> 3e37cd6 (Added: menu for hatym)
 import ProgressRing from "@/components/ProgressRing";
 
 const statusColors: Record<string, string> = {
@@ -34,14 +27,6 @@ type HatymPage = {
 
 type Props = {
   sessionId: string;
-<<<<<<< HEAD
-};
-
-const COPY = {
-  scanPrompt: "Скан жасап, хатымға қатыс!",
-  completedCount: "аяқталды",
-  perUserLimit: "Бір адамға бет саны",
-=======
   sessionSettings: SessionSettings;
 };
 
@@ -51,7 +36,6 @@ const COPY = {
   completedCount: "аяқталды",
   perUserLimit: "Бір адамға бет саны",
   pageTtl: "Бет TTL",
->>>>>>> 3e37cd6 (Added: menu for hatym)
   pageDashboard: "Беттер панелі",
   available: "Бос",
   assigned: "Тағайындалған",
@@ -60,12 +44,7 @@ const COPY = {
   reload: "Қайта жүктеу",
   confettiTitle: "Құттықтаймыз, хатым аяқталды!",
   confettiSubtitle: "Барлық 604 бет аяқталды.",
-<<<<<<< HEAD
-  startNewSession: "Жаңа хатым сессиясын бастау",
-  starting: "Басталуда...",
-=======
   startNewSession: "Жаңа хатым параметрлерін орнату",
->>>>>>> 3e37cd6 (Added: menu for hatym)
   ringLabel: "аяқталды",
   ringCaption: "Хатым оқылуы"
 };
@@ -83,20 +62,12 @@ function useWindowSize() {
   return size;
 }
 
-<<<<<<< HEAD
-export default function KioskClient({ sessionId }: Props) {
-=======
 export default function KioskClient({ sessionId, sessionSettings }: Props) {
->>>>>>> 3e37cd6 (Added: menu for hatym)
   const supabase = getSupabaseBrowserClient();
   const [pages, setPages] = useState<HatymPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [qrValue, setQrValue] = useState("");
-<<<<<<< HEAD
-  const [starting, setStarting] = useState(false);
-=======
->>>>>>> 3e37cd6 (Added: menu for hatym)
   const { width, height } = useWindowSize();
   const t = COPY;
 
@@ -116,12 +87,7 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
       setError(null);
 
       await supabase.rpc("release_expired_assignments", {
-<<<<<<< HEAD
-        p_session_id: sessionId,
-        p_ttl_minutes: ASSIGNMENT_TTL_MINUTES
-=======
         p_session_id: sessionId
->>>>>>> 3e37cd6 (Added: menu for hatym)
       });
 
       const { data, error: fetchError } = await supabase
@@ -190,28 +156,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
 
   const isComplete = counts.completed >= TOTAL_PAGES && pages.length > 0;
 
-<<<<<<< HEAD
-  async function handleStartNewSession() {
-    setStarting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/session/new", { method: "POST" });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body?.error || "Жаңа сессияны бастау мүмкін болмады");
-      }
-      const body = (await response.json()) as { sessionId: string };
-      window.location.href = `/kiosk/${body.sessionId}`;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Жаңа сессияны бастау мүмкін болмады");
-      setStarting(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-xl text-hatym-ink">
-=======
   if (loading) {
     return (
       <div className="relative min-h-screen flex items-center justify-center text-xl text-hatym-ink">
@@ -221,7 +165,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
         >
           {t.backToMenu}
         </Link>
->>>>>>> 3e37cd6 (Added: menu for hatym)
         {t.loading}
       </div>
     );
@@ -229,9 +172,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
 
   if (error) {
     return (
-<<<<<<< HEAD
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 text-hatym-ink">
-=======
       <div className="relative min-h-screen flex flex-col items-center justify-center gap-4 text-hatym-ink">
         <Link
           href="/kiosk"
@@ -239,7 +179,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
         >
           {t.backToMenu}
         </Link>
->>>>>>> 3e37cd6 (Added: menu for hatym)
         <div className="text-lg">{error}</div>
         <button
           className="rounded-full border border-hatym-ink px-6 py-2 text-sm uppercase tracking-wide"
@@ -255,44 +194,29 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
     return (
       <div className="relative min-h-screen overflow-hidden bg-hatym-dark text-white">
         <Confetti width={width} height={height} numberOfPieces={350} recycle={false} />
-<<<<<<< HEAD
-=======
         <Link
           href="/kiosk"
           className="absolute left-4 top-4 z-20 rounded-full border border-white/35 bg-black/25 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
         >
           {t.backToMenu}
         </Link>
->>>>>>> 3e37cd6 (Added: menu for hatym)
         <div className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-6 text-center">
           <div className="text-5xl font-semibold tracking-tight">{t.confettiTitle}</div>
           <div className="text-lg text-white/80">{t.confettiSubtitle}</div>
           <button
             className="rounded-full bg-white px-8 py-3 text-sm font-semibold uppercase tracking-wide text-hatym-dark transition hover:scale-[1.02]"
-<<<<<<< HEAD
-            onClick={handleStartNewSession}
-            disabled={starting}
-          >
-            {starting ? t.starting : t.startNewSession}
-          </button>
-          {error ? <div className="text-sm text-red-200">{error}</div> : null}
-=======
             onClick={() => {
               window.location.href = "/kiosk";
             }}
           >
             {t.startNewSession}
           </button>
->>>>>>> 3e37cd6 (Added: menu for hatym)
         </div>
       </div>
     );
   }
 
   return (
-<<<<<<< HEAD
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 gap-0">
-=======
     <div className="relative min-h-screen grid grid-cols-1 lg:grid-cols-2 gap-0">
       <Link
         href="/kiosk"
@@ -300,7 +224,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
       >
         {t.backToMenu}
       </Link>
->>>>>>> 3e37cd6 (Added: menu for hatym)
       <section className="flex flex-col items-center justify-center gap-6 px-10 py-12 bg-white/70">
         <div className="text-2xl font-semibold tracking-tight text-hatym-ink">
           {t.scanPrompt}
@@ -311,10 +234,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
         <div className="text-xl font-semibold text-hatym-ink">
           {counts.completed} / {TOTAL_PAGES} {t.completedCount}
         </div>
-<<<<<<< HEAD
-        <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/60">
-          {t.perUserLimit}: {MAX_PAGES_PER_USER}
-=======
         <div className="flex flex-col items-center gap-1 text-xs uppercase tracking-[0.25em] text-hatym-ink/60">
           <div>
             {t.perUserLimit}: {sessionSettings.pagesPerUser}
@@ -322,7 +241,6 @@ export default function KioskClient({ sessionId, sessionSettings }: Props) {
           <div>
             {t.pageTtl}: {sessionSettings.pageTtlMinutes} мин
           </div>
->>>>>>> 3e37cd6 (Added: menu for hatym)
         </div>
       </section>
 

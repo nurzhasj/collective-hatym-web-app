@@ -3,14 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-<<<<<<< HEAD
-import { ASSIGNMENT_TTL_MINUTES, MAX_PAGES_PER_USER } from "@/lib/constants";
-import { clearClaimToken, getOrCreateUserId, storeClaimToken } from "@/lib/browserStorage";
-=======
 import { DEFAULT_PAGE_TTL_MINUTES, DEFAULT_PAGES_PER_USER } from "@/lib/constants";
 import { clearClaimToken, getOrCreateUserId, storeClaimToken } from "@/lib/browserStorage";
 import { mapSessionRowToSettings, type SessionSettings } from "@/lib/sessionSettings";
->>>>>>> 3e37cd6 (Added: menu for hatym)
 
 type ClaimResponse = {
   page_number: number | null;
@@ -34,17 +29,9 @@ const COPY = {
   pageStatusAssigned: "Тағайындалған",
   pageStatusCompleted: "Аяқталды",
   openMushaf: "Мұсхафты ашу",
-<<<<<<< HEAD
-  resumeHint: "Бұл хатым сессиясында сізге ең көбі 3 бет беріледі. Қайта сканерлегенде тек осы беттер көрсетіледі.",
   claiming: "Беттеріңіз дайындалуда...",
   hatymDone: "Хатым аяқталған.",
   scanNewSession: "Жаңа сессия үшін киоск QR-кодын сканерлеңіз.",
-  limitReached: "Бұл сессияда сізге 3 бет берілді.",
-=======
-  claiming: "Беттеріңіз дайындалуда...",
-  hatymDone: "Хатым аяқталған.",
-  scanNewSession: "Жаңа сессия үшін киоск QR-кодын сканерлеңіз.",
->>>>>>> 3e37cd6 (Added: menu for hatym)
   limitHint: "Жаңа хатым сессиясы басталғанда ғана жаңа бет ала аласыз.",
   noPages: "Бұл сессияда сізге тиесілі белсенді беттер табылмады.",
   tryAgain: "Қайта көріңіз"
@@ -56,14 +43,11 @@ export default function ClaimClient({ sessionId }: Props) {
   const [pages, setPages] = useState<ClaimedPage[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "assigned" | "finished" | "limit" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-<<<<<<< HEAD
-=======
   const [sessionSettings, setSessionSettings] = useState<SessionSettings>({
     pagesPerUser: DEFAULT_PAGES_PER_USER,
     pageTtlMinutes: DEFAULT_PAGE_TTL_MINUTES,
     autoCompleteAfterMinutes: null
   });
->>>>>>> 3e37cd6 (Added: menu for hatym)
   const t = COPY;
 
   useEffect(() => {
@@ -78,12 +62,6 @@ export default function ClaimClient({ sessionId }: Props) {
     async function claimPages() {
       setStatus("loading");
       setError(null);
-<<<<<<< HEAD
-      const { data, error: claimError } = await supabase.rpc("claim_next_page", {
-        p_session_id: sessionId,
-        p_user_id: userId,
-        p_ttl_minutes: ASSIGNMENT_TTL_MINUTES
-=======
 
       const { data: sessionData, error: sessionError } = await supabase
         .from("hatym_sessions")
@@ -108,7 +86,6 @@ export default function ClaimClient({ sessionId }: Props) {
       const { data, error: claimError } = await supabase.rpc("claim_next_page", {
         p_session_id: sessionId,
         p_user_id: userId
->>>>>>> 3e37cd6 (Added: menu for hatym)
       });
 
       if (!isMounted) return;
@@ -145,11 +122,7 @@ export default function ClaimClient({ sessionId }: Props) {
       }
 
       if (nextPages.length > 0) {
-<<<<<<< HEAD
-        setPages(nextPages.slice(0, MAX_PAGES_PER_USER));
-=======
         setPages(nextPages.slice(0, resolvedSettings.pagesPerUser));
->>>>>>> 3e37cd6 (Added: menu for hatym)
         setStatus("assigned");
         return;
       }
@@ -195,13 +168,9 @@ export default function ClaimClient({ sessionId }: Props) {
   if (status === "limit") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-white px-6 text-center text-hatym-ink">
-<<<<<<< HEAD
-        <div className="text-2xl font-semibold">{t.limitReached}</div>
-=======
         <div className="text-2xl font-semibold">
           {`Бұл сессияда сізге ${sessionSettings.pagesPerUser} бет берілді.`}
         </div>
->>>>>>> 3e37cd6 (Added: menu for hatym)
         <div className="max-w-md text-sm text-hatym-ink/70">{t.limitHint}</div>
         <div className="text-xs text-hatym-ink/60">{t.noPages}</div>
       </div>
@@ -225,11 +194,7 @@ export default function ClaimClient({ sessionId }: Props) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-white px-6 py-10 text-center text-hatym-ink">
       <div className="text-sm uppercase tracking-[0.3em] text-hatym-ink/60">
-<<<<<<< HEAD
-        {t.yourPages} ({pages.length} / {MAX_PAGES_PER_USER})
-=======
         {t.yourPages} ({pages.length} / {sessionSettings.pagesPerUser})
->>>>>>> 3e37cd6 (Added: menu for hatym)
       </div>
 
       <div className="w-full max-w-sm space-y-3">
@@ -253,13 +218,9 @@ export default function ClaimClient({ sessionId }: Props) {
         ))}
       </div>
 
-<<<<<<< HEAD
-      <div className="max-w-md text-xs text-hatym-ink/60">{t.resumeHint}</div>
-=======
       <div className="max-w-md text-xs text-hatym-ink/60">
         {`Бұл хатым сессиясында сізге ең көбі ${sessionSettings.pagesPerUser} бет беріледі. Қайта сканерлегенде тек осы беттер көрсетіледі.`}
       </div>
->>>>>>> 3e37cd6 (Added: menu for hatym)
     </div>
   );
 }

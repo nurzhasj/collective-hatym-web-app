@@ -1,9 +1,6 @@
 import KioskClient from "@/components/KioskClient";
-<<<<<<< HEAD
-=======
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mapSessionRowToSettings } from "@/lib/sessionSettings";
->>>>>>> 3e37cd6 (Added: menu for hatym)
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +10,6 @@ type Props = {
 
 export default async function KioskPage({ params }: Props) {
   const { sessionId } = await params;
-<<<<<<< HEAD
-  return <KioskClient sessionId={sessionId} />;
-=======
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase
     .from("hatym_sessions")
@@ -31,5 +25,4 @@ export default async function KioskPage({ params }: Props) {
   }
 
   return <KioskClient sessionId={sessionId} sessionSettings={mapSessionRowToSettings(data)} />;
->>>>>>> 3e37cd6 (Added: menu for hatym)
 }
