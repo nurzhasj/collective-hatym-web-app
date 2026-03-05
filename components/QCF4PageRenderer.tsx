@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { QCF4Line, QCF4PageData, QCF4Word, qcf4FontName, loadQCF4FontsForPage } from "@/lib/qcf4";
+import { qcf4FontName, loadQCF4FontsForPage } from "@/lib/qcf4";
+import type { QCF4Line, QCF4PageData, QCF4Word } from "@/lib/qcf4";
 
 interface Props {
   data: QCF4PageData;
