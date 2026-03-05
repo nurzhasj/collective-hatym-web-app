@@ -1,5 +1,9 @@
 import { useMemo } from "react";
 
+// Standard Unicode basmala — used as fallback when a line has type=basmala but no text field
+// (common in QPC-format JSON where basmala is stored only as qpcV1/qpcV2 glyph codes)
+const BASMALA_UNICODE = "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ";
+
 export type MushafPageRendererProps = {
   data: unknown;
   className?: string;
@@ -85,6 +89,9 @@ function normalizeLine(line: unknown): RenderLine | null {
   if (!text && Array.isArray(line.segments)) text = extractTextFromFragments(line.segments);
   text = text.trim();
 
+  // QPC-format JSON stores basmala only as qpcV1/qpcV2 glyph codes with no plain text field
+  if (!text && isBasmala) text = BASMALA_UNICODE;
+
   if (!text) return null;
 
   return {
@@ -169,7 +176,7 @@ export default function MushafPageRenderer({ data, className }: MushafPageRender
         "space-y-5 text-[1.8rem] leading-[3.2rem] text-slate-900 dark:text-slate-100",
         className
       )}
-      style={{ textRendering: "optimizeLegibility" }}
+      style={{ fontFamily: "var(--font-arabic, serif)", textRendering: "optimizeLegibility" }}
     >
       {lines.map((line, index) => {
         const isCentered = line.isCentered || line.isHeader || line.isBasmala;

@@ -6,6 +6,9 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getClaimToken, getOrCreateUserId, clearClaimToken } from "@/lib/browserStorage";
 import { resolveMushafUrls } from "@/lib/mushaf";
 import MushafPageRenderer from "@/components/MushafPageRenderer";
+import QCF4PageRenderer from "@/components/QCF4PageRenderer";
+import QPCPageRenderer, { isQPCData } from "@/components/QPCPageRenderer";
+import { isQCF4Data } from "@/lib/qcf4";
 
 type CompleteResponse = {
   status: string | null;
@@ -49,6 +52,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "completed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [showBar, setShowBar] = useState(true);
   const t = COPY;
 
   useEffect(() => {
@@ -235,43 +239,51 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
-      <div className="px-5 pb-28 pt-8">
-        <div className="mx-auto flex max-w-xl flex-col gap-6">
-          <div className="text-center">
-            <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/50 dark:text-slate-400">
-              {t.mushafPage}
-            </div>
-            <div className="text-3xl font-semibold">{pageNumber}</div>
-          </div>
-
-          {status === "loading" ? (
-            <div className="rounded-2xl border border-black/10 bg-white/70 p-6 text-center text-sm text-hatym-ink/70 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
-              {t.loading}
-            </div>
-          ) : null}
-
-          {status === "error" ? (
-            <div className="rounded-2xl border border-red-500/40 bg-red-50 p-5 text-sm text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200">
-              {error ?? t.loadError}
-            </div>
-          ) : null}
-
-          {status === "ready" && mushafData ? (
-            <div className="rounded-[2.5rem] border border-black/10 bg-white/95 p-6 shadow-sm dark:border-white/10 dark:bg-white/5 sm:p-10">
-              <MushafPageRenderer data={mushafData} className="font-serif" />
-            </div>
-          ) : null}
-
-          {!claimToken ? (
-            <div className="rounded-2xl border border-amber-500/40 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-300/30 dark:bg-amber-500/10 dark:text-amber-100">
-              {t.notAssigned}
-            </div>
-          ) : null}
+    <div className="relative flex h-dvh flex-col bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
+      {/* Page number header */}
+      <div className="shrink-0 pb-1 pt-6 text-center">
+        <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/50 dark:text-slate-400">
+          {t.mushafPage}
         </div>
+        <div className="text-2xl font-semibold">{pageNumber}</div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 border-t border-black/10 bg-white/90 px-4 py-4 backdrop-blur dark:border-white/10 dark:bg-slate-900/90">
+      {/* Loading state */}
+      {status === "loading" ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-hatym-ink/70 dark:text-white/70">
+          {t.loading}
+        </div>
+      ) : null}
+
+      {/* Error state */}
+      {status === "error" ? (
+        <div className="mx-4 my-3 rounded-2xl border border-red-500/40 bg-red-50 p-5 text-sm text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200">
+          {error ?? t.loadError}
+        </div>
+      ) : null}
+
+      {/* Mushaf — fills 100% of remaining space; tap toggles footer */}
+      {status === "ready" && mushafData ? (
+        <div className="min-h-0 flex-1 px-2" onClick={() => setShowBar((v) => !v)}>
+          {isQCF4Data(mushafData) ? (
+            <QCF4PageRenderer data={mushafData} />
+          ) : isQPCData(mushafData) ? (
+            <QPCPageRenderer data={mushafData} />
+          ) : (
+            <MushafPageRenderer data={mushafData} className="font-serif" />
+          )}
+        </div>
+      ) : null}
+
+      {/* Bottom action bar — fixed overlay, slides in/out on tap */}
+      <div
+        className="fixed bottom-0 left-0 right-0 border-t border-black/10 bg-white/90 px-4 pt-4 backdrop-blur dark:border-white/10 dark:bg-slate-900/90"
+        style={{
+          paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+          transform: showBar ? "translateY(0)" : "translateY(100%)",
+          transition: "transform 0.3s ease-in-out",
+        }}
+      >
         <div className="mx-auto max-w-xl">
           <div className="flex items-center gap-3">
             <button
