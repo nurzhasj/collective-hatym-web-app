@@ -52,6 +52,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "completed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [showBar, setShowBar] = useState(true);
   const t = COPY;
 
   useEffect(() => {
@@ -261,9 +262,9 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         </div>
       ) : null}
 
-      {/* Mushaf — fills all remaining vertical space, capped width + auto padding */}
+      {/* Mushaf — tap to toggle bottom bar */}
       {status === "ready" && mushafData ? (
-        <div className="min-h-0 flex-1 px-2">
+        <div className="min-h-0 flex-1 px-2" onClick={() => setShowBar((v) => !v)}>
           {isQCF4Data(mushafData) ? (
             <QCF4PageRenderer data={mushafData} />
           ) : isQPCData(mushafData) ? (
@@ -274,10 +275,14 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
         </div>
       ) : null}
 
-      {/* Bottom action bar */}
+      {/* Bottom action bar — slides in/out on tap */}
       <div
         className="shrink-0 border-t border-black/10 bg-white/90 px-4 pt-4 backdrop-blur dark:border-white/10 dark:bg-slate-900/90"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        style={{
+          paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+          transform: showBar ? "translateY(0)" : "translateY(100%)",
+          transition: "transform 0.3s ease-in-out",
+        }}
       >
         <div className="mx-auto max-w-xl">
           <div className="flex items-center gap-3">
