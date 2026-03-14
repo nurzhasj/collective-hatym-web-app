@@ -19,6 +19,7 @@ const pageFontName = (page: number) => `p${page}-v2`;
 const LINES_PER_PAGE = 15;
 const LINE_START_PADDING_PX = 2;
 const LINE_END_PADDING_PX = 2;
+const COMPACT_FONT_BOOST = 1.08;
 
 // ---- Types (matches the JSON format from the user's 604 files) ----
 
@@ -126,18 +127,22 @@ function TextLine({
   fontLoaded,
   pageFont,
   isShortLine,
+  isCompactPage,
 }: {
   words: QPCWord[];
   fontLoaded: boolean;
   pageFont: string;
   isShortLine: boolean;
+  isCompactPage: boolean;
 }) {
   if (!words.length) return null;
   const justify =
-    words.length === 1
+    isCompactPage
+      ? "center"
+      : words.length === 1
       ? "center"
       : isShortLine
-        ? "flex-start"
+        ? "center"
         : "space-between";
 
   return (
@@ -211,10 +216,35 @@ export default function QPCPageRenderer({ data, className }: Props) {
   const pageFont = pageFontName(data.page);
 
   const lines = useMemo(() => mergeOrnamentLines(data.lines), [data.lines]);
+  const headerLine = lines.find((line) => line.type === "surah-header") ?? null;
+  const contentLines = headerLine ? lines.filter((line) => line.type !== "surah-header") : lines;
+  const reservedHeaderRows = headerLine ? 1 : 0;
 
-  const lastTextLineIdx = lines.reduce<number>(
+  const lastTextLineIdx = contentLines.reduce<number>(
     (last, line, i) => (line.type === "text" && line.words?.length ? i : last),
     -1
+  );
+
+  const isCompactPage = useMemo(() => {
+    const textLines = contentLines.filter((line) => line.type === "text" && line.words?.length);
+    if (!textLines.length) return false;
+
+    const totalWords = textLines.reduce((sum, line) => sum + (line.words?.length ?? 0), 0);
+    const averageWords = totalWords / textLines.length;
+    const maxWords = textLines.reduce((max, line) => Math.max(max, line.words?.length ?? 0), 0);
+
+    return averageWords <= 8 && maxWords <= 10;
+  }, [contentLines]);
+
+  const leadingEmptyRows = useMemo(() => {
+    if (!isCompactPage) return 0;
+    const availableRows = LINES_PER_PAGE - reservedHeaderRows;
+    return Math.max(0, Math.floor((availableRows - contentLines.length) / 2));
+  }, [contentLines.length, isCompactPage, reservedHeaderRows]);
+
+  const trailingEmptyRows = Math.max(
+    0,
+    LINES_PER_PAGE - reservedHeaderRows - contentLines.length - leadingEmptyRows
   );
 
   // Dynamic font sizing: measure actual container, pick the smaller of
@@ -224,13 +254,14 @@ export default function QPCPageRenderer({ data, className }: Props) {
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
-      const byWidth = width * 0.056;
-      const byHeight = (height / LINES_PER_PAGE) * 0.58;
-      setFontSize(Math.max(12, Math.min(byWidth, byHeight)));
+      const byWidth = width * (isCompactPage ? 0.06 : 0.056);
+      const byHeight = (height / LINES_PER_PAGE) * (isCompactPage ? 0.61 : 0.58);
+      const nextSize = Math.max(12, Math.min(byWidth, byHeight));
+      setFontSize(isCompactPage ? nextSize * COMPACT_FONT_BOOST : nextSize);
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [isCompactPage]);
 
   useEffect(() => {
     let alive = true;
@@ -262,11 +293,13 @@ export default function QPCPageRenderer({ data, className }: Props) {
         WebkitTextSizeAdjust: "100%",
       }}
     >
-      {lines.map((line, idx) => {
-        if (line.type === "surah-header") {
-          return <SurahHeader key={line.line} text={line.text ?? ""} />;
-        }
+      {headerLine ? <SurahHeader key={headerLine.line} text={headerLine.text ?? ""} /> : null}
 
+      {Array.from({ length: leadingEmptyRows }, (_, index) => (
+        <div key={`leading-empty-${index}`} aria-hidden="true" />
+      ))}
+
+      {contentLines.map((line, idx) => {
         if (line.type === "basmala") {
           return (
             <BasmalaLine
@@ -287,6 +320,7 @@ export default function QPCPageRenderer({ data, className }: Props) {
               fontLoaded={fontLoaded}
               pageFont={pageFont}
               isShortLine={isShortLine}
+              isCompactPage={isCompactPage}
             />
           );
         }
@@ -309,6 +343,10 @@ export default function QPCPageRenderer({ data, className }: Props) {
 
         return null;
       })}
+
+      {Array.from({ length: trailingEmptyRows }, (_, index) => (
+        <div key={`trailing-empty-${index}`} aria-hidden="true" />
+      ))}
     </div>
   );
 }
