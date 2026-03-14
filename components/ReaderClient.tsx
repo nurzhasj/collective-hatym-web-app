@@ -6,9 +6,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getClaimToken, getOrCreateUserId, clearClaimToken } from "@/lib/browserStorage";
 import { resolveMushafUrls } from "@/lib/mushaf";
 import MushafPageRenderer from "@/components/MushafPageRenderer";
-import QCF4PageRenderer from "@/components/QCF4PageRenderer";
 import QPCPageRenderer, { isQPCData } from "@/components/QPCPageRenderer";
-import { isQCF4Data } from "@/lib/qcf4";
 
 type CompleteResponse = {
   status: string | null;
@@ -239,7 +237,7 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
   }
 
   return (
-    <div className="relative flex h-dvh flex-col bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
+    <div className="relative flex h-dvh min-w-0 flex-col bg-white text-hatym-ink dark:bg-slate-950 dark:text-slate-100">
       {/* Page number header */}
       <div className="shrink-0 pb-1 pt-6 text-center">
         <div className="text-xs uppercase tracking-[0.3em] text-hatym-ink/50 dark:text-slate-400">
@@ -264,13 +262,14 @@ export default function ReaderClient({ sessionId, pageNumber }: Props) {
 
       {/* Mushaf — fills 100% of remaining space; tap toggles footer */}
       {status === "ready" && mushafData ? (
-        <div className="min-h-0 flex-1 px-2" onClick={() => setShowBar((v) => !v)}>
-          {isQCF4Data(mushafData) ? (
-            <QCF4PageRenderer data={mushafData} />
-          ) : isQPCData(mushafData) ? (
-            <QPCPageRenderer data={mushafData} />
+        <div
+          className="relative min-h-0 min-w-0 flex-1 basis-0 overflow-visible px-4"
+          onClick={() => setShowBar((v) => !v)}
+        >
+          {isQPCData(mushafData) ? (
+            <QPCPageRenderer data={mushafData} className="h-full w-full" />
           ) : (
-            <MushafPageRenderer data={mushafData} className="font-serif" />
+            <MushafPageRenderer data={mushafData} className="h-full w-full font-serif" />
           )}
         </div>
       ) : null}

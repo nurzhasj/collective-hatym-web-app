@@ -17,6 +17,8 @@ const pageFontName = (page: number) => `p${page}-v2`;
 
 // Madinah Mushaf: every page has exactly 15 lines.
 const LINES_PER_PAGE = 15;
+const LINE_START_PADDING_PX = 2;
+const LINE_END_PADDING_PX = 2;
 
 // ---- Types (matches the JSON format from the user's 604 files) ----
 
@@ -93,14 +95,27 @@ function BasmalaLine({
   pageFont: string;
 }) {
   return (
-    <div style={{ textAlign: "center", direction: "rtl" }}>
+    <div
+      style={{
+        textAlign: "center",
+        direction: "rtl",
+        width: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        paddingInlineStart: `${LINE_START_PADDING_PX}px`,
+        paddingInlineEnd: `${LINE_END_PADDING_PX}px`,
+        overflow: "visible",
+      }}
+    >
       {fontLoaded && qpcV2 ? (
         <span
           dangerouslySetInnerHTML={{ __html: qpcV2 }}
-          style={{ fontFamily: pageFont }}
+          style={{ fontFamily: pageFont, whiteSpace: "nowrap", flexShrink: 0 }}
         />
       ) : (
-        <span style={{ fontFamily: FALLBACK_FONT }}>{BASMALA_FALLBACK}</span>
+        <span style={{ fontFamily: FALLBACK_FONT, whiteSpace: "nowrap", flexShrink: 0 }}>
+          {BASMALA_FALLBACK}
+        </span>
       )}
     </div>
   );
@@ -132,6 +147,12 @@ function TextLine({
         flexDirection: "row",
         justifyContent: justify,
         direction: "rtl",
+        width: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        paddingInlineStart: `${LINE_START_PADDING_PX}px`,
+        paddingInlineEnd: `${LINE_END_PADDING_PX}px`,
+        overflow: "visible",
       }}
     >
       {words.map((w, i) =>
@@ -139,10 +160,10 @@ function TextLine({
           <span
             key={i}
             dangerouslySetInnerHTML={{ __html: w.qpcV2 }}
-            style={{ fontFamily: pageFont }}
+            style={{ fontFamily: pageFont, whiteSpace: "nowrap", flexShrink: 0 }}
           />
         ) : (
-          <span key={i} style={{ fontFamily: FALLBACK_FONT }}>
+          <span key={i} style={{ fontFamily: FALLBACK_FONT, whiteSpace: "nowrap", flexShrink: 0 }}>
             {w.word}
           </span>
         )
@@ -229,12 +250,16 @@ export default function QPCPageRenderer({ data, className }: Props) {
       className={className}
       style={{
         display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
         gridTemplateRows: `repeat(${LINES_PER_PAGE}, 1fr)`,
         alignItems: "center",
+        width: "100%",
+        minWidth: 0,
         height: "100%",
         fontSize: `${fontSize}px`,
         lineHeight: 1.15,
-        overflow: "hidden",
+        overflow: "visible",
+        WebkitTextSizeAdjust: "100%",
       }}
     >
       {lines.map((line, idx) => {
