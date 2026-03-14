@@ -52,14 +52,18 @@ npm run dev
 ```
 
 - Kiosk entry: `http://localhost:3000/kiosk`
-- This auto-creates a session and redirects to `/kiosk/{sessionId}`.
+- `/kiosk` now opens a **Create Hatym** screen first.
+- Admin can set:
+  - pages per user
+  - page TTL (minutes)
+- After submit, app opens `/kiosk/{sessionId}`.
 - Phone claim URL: `/s/{sessionId}/claim`
 - Reader URL: `/read/{sessionId}/{pageNumber}`
 
 ## How it works
 
-- `create_hatym_session()` creates a new session and seeds 604 `hatym_pages` rows.
-- `claim_next_page()` assigns the next page atomically with TTL reclaim and anti-hoarding.
+- `create_hatym_session_with_settings(...)` creates a new session with configurable settings, deletes the previous session, and seeds 604 `hatym_pages` rows.
+- `claim_next_page()` assigns the next page atomically using the session's settings (pages/user, TTL).
 - `complete_page()` validates `claim_token` and marks the page completed.
 - Kiosk subscribes to `hatym_pages` realtime updates to update the grid instantly.
 
