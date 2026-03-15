@@ -169,7 +169,7 @@ export default function CreateHatymClient({ activeSession }: Props) {
             </label>
 
             <label className="grid gap-2">
-              <span className="text-sm font-medium">Бір беттің TTL уақыты (минут)</span>
+              <span className="text-sm font-medium">Бір бетке берілетін минут саны</span>
               <input
                 type="number"
                 min={MIN_PAGE_TTL_MINUTES}
@@ -208,7 +208,7 @@ export default function CreateHatymClient({ activeSession }: Props) {
                 href={`/kiosk/${currentActiveSession.id}`}
                 className="inline-flex rounded-full border border-amber-900/30 bg-white px-5 py-2 text-sm font-semibold uppercase tracking-wide text-amber-950"
               >
-                Ағымдағы киоскты ашу
+                Ағымдағы хатымды ашу
               </Link>
               <button
                 type="button"

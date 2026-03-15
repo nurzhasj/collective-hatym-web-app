@@ -6,7 +6,16 @@ create table if not exists hatym_sessions (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   completed_at timestamptz null,
-  is_active boolean not null default true
+  is_active boolean not null default true,
+  pages_per_user int not null default 3,
+  page_ttl_minutes int not null default 10,
+  auto_complete_after_minutes int null,
+  constraint hatym_sessions_pages_per_user_check check (pages_per_user between 1 and 20),
+  constraint hatym_sessions_page_ttl_minutes_check check (page_ttl_minutes between 1 and 1440),
+  constraint hatym_sessions_auto_complete_after_minutes_check check (
+    auto_complete_after_minutes is null
+    or auto_complete_after_minutes between 1 and 43200
+  )
 );
 
 create table if not exists quran_pages (
@@ -17,6 +26,79 @@ create table if not exists quran_pages (
 );
 
 -- Schema upgrades for existing databases (create table if not exists won't alter old tables).
+alter table hatym_sessions
+  add column if not exists pages_per_user int;
+
+alter table hatym_sessions
+  add column if not exists page_ttl_minutes int;
+
+alter table hatym_sessions
+  add column if not exists auto_complete_after_minutes int;
+
+update hatym_sessions
+set pages_per_user = 3
+where pages_per_user is null;
+
+update hatym_sessions
+set pages_per_user = least(greatest(pages_per_user, 1), 20)
+where pages_per_user is distinct from least(greatest(pages_per_user, 1), 20);
+
+alter table hatym_sessions
+  alter column pages_per_user set default 3;
+
+alter table hatym_sessions
+  alter column pages_per_user set not null;
+
+alter table hatym_sessions
+  drop constraint if exists hatym_sessions_pages_per_user_check;
+
+alter table hatym_sessions
+  add constraint hatym_sessions_pages_per_user_check
+  check (pages_per_user between 1 and 20);
+
+update hatym_sessions
+set page_ttl_minutes = 10
+where page_ttl_minutes is null;
+
+update hatym_sessions
+set page_ttl_minutes = least(greatest(page_ttl_minutes, 1), 1440)
+where page_ttl_minutes is distinct from least(greatest(page_ttl_minutes, 1), 1440);
+
+alter table hatym_sessions
+  alter column page_ttl_minutes set default 10;
+
+alter table hatym_sessions
+  alter column page_ttl_minutes set not null;
+
+alter table hatym_sessions
+  drop constraint if exists hatym_sessions_page_ttl_minutes_check;
+
+alter table hatym_sessions
+  add constraint hatym_sessions_page_ttl_minutes_check
+  check (page_ttl_minutes between 1 and 1440);
+
+update hatym_sessions
+set auto_complete_after_minutes = null
+where auto_complete_after_minutes is not null
+  and auto_complete_after_minutes <= 0;
+
+update hatym_sessions
+set auto_complete_after_minutes = least(greatest(auto_complete_after_minutes, 1), 43200)
+where auto_complete_after_minutes is distinct from least(greatest(auto_complete_after_minutes, 1), 43200);
+
+alter table hatym_sessions
+  alter column auto_complete_after_minutes set default null;
+
+alter table hatym_sessions
+  drop constraint if exists hatym_sessions_auto_complete_after_minutes_check;
+
+alter table hatym_sessions
+  add constraint hatym_sessions_auto_complete_after_minutes_check
+  check (
+    auto_complete_after_minutes is null
+    or auto_complete_after_minutes between 1 and 43200
+  );
+
 alter table quran_pages
   add column if not exists render_type text;
 
@@ -87,7 +169,13 @@ create policy "Public read hatym pages" on hatym_pages
   for select using (true);
 
 -- Functions
-create or replace function create_hatym_session()
+drop function if exists create_hatym_session_with_settings(int, int, int);
+
+create or replace function create_hatym_session_with_settings(
+  p_pages_per_user int default 3,
+  p_page_ttl_minutes int default 10,
+  p_auto_complete_after_minutes int default null
+)
 returns uuid
 language plpgsql
 security definer
@@ -95,12 +183,29 @@ set search_path = public
 as $$
 declare
   v_session_id uuid;
+  v_pages_per_user int := least(greatest(coalesce(p_pages_per_user, 3), 1), 20);
+  v_page_ttl_minutes int := least(greatest(coalesce(p_page_ttl_minutes, 10), 1), 1440);
+  v_auto_complete_after_minutes int := case
+    when p_auto_complete_after_minutes is null or p_auto_complete_after_minutes <= 0 then null
+    else least(greatest(p_auto_complete_after_minutes, 1), 43200)
+  end;
 begin
-  -- Clean up completed sessions to avoid unbounded growth
   delete from hatym_sessions
-  where is_active = false or completed_at is not null;
+  where id is not null;
 
-  insert into hatym_sessions (is_active) values (true) returning id into v_session_id;
+  insert into hatym_sessions (
+    is_active,
+    pages_per_user,
+    page_ttl_minutes,
+    auto_complete_after_minutes
+  )
+  values (
+    true,
+    v_pages_per_user,
+    v_page_ttl_minutes,
+    v_auto_complete_after_minutes
+  )
+  returning id into v_session_id;
 
   insert into hatym_pages (session_id, page_number, status)
   select v_session_id, qp.page_number, 'available'
@@ -111,9 +216,20 @@ begin
 end;
 $$;
 
+create or replace function create_hatym_session()
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return create_hatym_session_with_settings();
+end;
+$$;
+
 create or replace function release_expired_assignments(
   p_session_id uuid,
-  p_ttl_minutes int default 10
+  p_ttl_minutes int default null
 )
 returns int
 language plpgsql
@@ -122,19 +238,22 @@ set search_path = public
 as $$
 declare
   v_now timestamptz := now();
-  v_ttl interval := make_interval(mins => greatest(p_ttl_minutes, 0));
+  v_ttl interval;
   v_updated int := 0;
   v_completed int := 0;
   v_session_active boolean;
+  v_session_ttl_minutes int := 10;
 begin
-  select hs.is_active
-  into v_session_active
+  select hs.is_active, hs.page_ttl_minutes
+  into v_session_active, v_session_ttl_minutes
   from hatym_sessions hs
   where hs.id = p_session_id;
 
   if v_session_active is distinct from true then
     return 0;
   end if;
+
+  v_ttl := make_interval(mins => greatest(coalesce(p_ttl_minutes, v_session_ttl_minutes, 10), 0));
 
   update hatym_pages hp
   set status = 'completed',
@@ -169,7 +288,7 @@ $$;
 create or replace function claim_next_page(
   p_session_id uuid,
   p_user_id text,
-  p_ttl_minutes int default 10
+  p_ttl_minutes int default null
 )
 returns table (
   page_number int,
@@ -189,15 +308,23 @@ declare
   v_rows_returned int := 0;
   v_rows int := 0;
   v_max_pages int := 3;
+  v_ttl_minutes int := 10;
 begin
-  select is_active into v_session_active from hatym_sessions where id = p_session_id;
+  select
+    hs.is_active,
+    least(greatest(coalesce(hs.pages_per_user, 3), 1), 20),
+    least(greatest(coalesce(hs.page_ttl_minutes, 10), 1), 1440)
+  into v_session_active, v_max_pages, v_ttl_minutes
+  from hatym_sessions hs
+  where hs.id = p_session_id;
+
   if v_session_active is distinct from true then
     status := 'finished';
     return next;
     return;
   end if;
 
-  perform release_expired_assignments(p_session_id, p_ttl_minutes);
+  perform release_expired_assignments(p_session_id, coalesce(p_ttl_minutes, v_ttl_minutes));
 
   -- Serialize claims for the same user in the same session.
   perform pg_advisory_xact_lock(hashtext(p_session_id::text || ':' || p_user_id));
@@ -343,6 +470,9 @@ $$;
 -- Permissions
 revoke all on function create_hatym_session() from public;
 grant execute on function create_hatym_session() to service_role;
+
+revoke all on function create_hatym_session_with_settings(int, int, int) from public;
+grant execute on function create_hatym_session_with_settings(int, int, int) to service_role;
 
 revoke all on function claim_next_page(uuid, text, int) from public;
 grant execute on function claim_next_page(uuid, text, int) to anon, authenticated;
