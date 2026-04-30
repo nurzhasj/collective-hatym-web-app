@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Amiri } from "next/font/google";
+import { Amiri, Montserrat } from "next/font/google";
 import "./globals.css";
 
 const amiri = Amiri({
   subsets: ["arabic"],
   weight: ["400", "700"],
   variable: "--font-arabic"
+});
+
+const montserrat = Montserrat({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-montserrat"
 });
 
 export const metadata: Metadata = {
@@ -20,7 +26,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${amiri.variable} font-sans antialiased`}>{children}</body>
+      <body className={`${amiri.variable} ${montserrat.variable} font-sans antialiased`}>{children}</body>
     </html>
   );
 }

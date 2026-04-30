@@ -1,5 +1,7 @@
 const USER_ID_KEY = "hatym_user_id";
 const CLAIM_PREFIX = "hatym_claim";
+const READER_NAME_KEY = "hatym_reader_name";
+const DECEASED_NAME_PREFIX = "hatym_deceased_name";
 
 function generateUuid() {
   if (typeof window === "undefined") return "";
@@ -44,4 +46,35 @@ export function clearClaimToken(sessionId: string, pageNumber: number) {
   if (typeof window === "undefined") return;
   const key = `${CLAIM_PREFIX}:${sessionId}:${pageNumber}`;
   window.localStorage.removeItem(key);
+}
+
+export type StoredParticipantProfile = {
+  readerName: string;
+  deceasedName: string;
+};
+
+export function getStoredParticipantProfile(sessionId: string): StoredParticipantProfile {
+  if (typeof window === "undefined") {
+    return { readerName: "", deceasedName: "" };
+  }
+
+  return {
+    readerName: window.localStorage.getItem(READER_NAME_KEY) ?? "",
+    deceasedName: window.localStorage.getItem(`${DECEASED_NAME_PREFIX}:${sessionId}`) ?? ""
+  };
+}
+
+export function storeParticipantProfile(
+  sessionId: string,
+  profile: StoredParticipantProfile
+) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(READER_NAME_KEY, profile.readerName);
+
+  const deceasedKey = `${DECEASED_NAME_PREFIX}:${sessionId}`;
+  if (profile.deceasedName) {
+    window.localStorage.setItem(deceasedKey, profile.deceasedName);
+  } else {
+    window.localStorage.removeItem(deceasedKey);
+  }
 }

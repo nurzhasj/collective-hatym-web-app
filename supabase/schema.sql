@@ -133,6 +133,8 @@ create table if not exists hatym_pages (
   assigned_at timestamptz null,
   completed_at timestamptz null,
   claim_token text null,
+  last_expired_to text null,
+  last_expired_at timestamptz null,
   primary key (session_id, page_number)
 );
 
@@ -141,20 +143,53 @@ create table if not exists hatym_claim_events (
   session_id uuid not null references hatym_sessions(id) on delete cascade,
   user_id text not null,
   page_number int not null references quran_pages(page_number),
+  claim_token text null,
+  completed_at timestamptz null,
+  expired_at timestamptz null,
   claimed_at timestamptz not null default now()
 );
 
+create table if not exists hatym_participants (
+  session_id uuid not null references hatym_sessions(id) on delete cascade,
+  user_id text not null,
+  name text not null,
+  deceased_name text null,
+  joined_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  primary key (session_id, user_id)
+);
+
+alter table hatym_pages
+  add column if not exists last_expired_to text;
+
+alter table hatym_pages
+  add column if not exists last_expired_at timestamptz;
+
+alter table hatym_claim_events
+  add column if not exists claim_token text;
+
+alter table hatym_claim_events
+  add column if not exists completed_at timestamptz;
+
+alter table hatym_claim_events
+  add column if not exists expired_at timestamptz;
+
 -- Indexes
+drop index if exists hatym_sessions_single_row_idx;
 drop index if exists hatym_sessions_single_active_idx;
 create index if not exists hatym_pages_session_status_idx on hatym_pages (session_id, status);
 create index if not exists hatym_pages_session_assigned_at_idx on hatym_pages (session_id, assigned_at);
 create index if not exists hatym_pages_session_assigned_to_status_idx on hatym_pages (session_id, assigned_to, status);
 create index if not exists hatym_claim_events_session_user_idx on hatym_claim_events (session_id, user_id);
+create index if not exists hatym_claim_events_session_token_idx on hatym_claim_events (session_id, claim_token);
+create index if not exists hatym_participants_session_joined_idx on hatym_participants (session_id, joined_at);
 
 -- RLS
 alter table hatym_sessions enable row level security;
 alter table quran_pages enable row level security;
 alter table hatym_pages enable row level security;
+alter table hatym_claim_events enable row level security;
+alter table hatym_participants enable row level security;
 
 drop policy if exists "Public read sessions" on hatym_sessions;
 create policy "Public read sessions" on hatym_sessions
@@ -167,6 +202,17 @@ create policy "Public read quran pages" on quran_pages
 drop policy if exists "Public read hatym pages" on hatym_pages;
 create policy "Public read hatym pages" on hatym_pages
   for select using (true);
+
+drop policy if exists "Public read claim events" on hatym_claim_events;
+create policy "Public read claim events" on hatym_claim_events
+  for select using (true);
+
+drop policy if exists "Public read participants" on hatym_participants;
+create policy "Public read participants" on hatym_participants
+  for select using (true);
+
+grant select on hatym_claim_events to anon, authenticated;
+grant select on hatym_participants to anon, authenticated;
 
 -- Functions
 drop function if exists create_hatym_session_with_settings(int, int, int);
@@ -190,9 +236,6 @@ declare
     else least(greatest(p_auto_complete_after_minutes, 1), 43200)
   end;
 begin
-  delete from hatym_sessions
-  where id is not null;
-
   insert into hatym_sessions (
     is_active,
     pages_per_user,
@@ -255,39 +298,60 @@ begin
 
   v_ttl := make_interval(mins => greatest(coalesce(p_ttl_minutes, v_session_ttl_minutes, 10), 0));
 
-  update hatym_pages hp
-  set status = 'completed',
-      completed_at = coalesce(hp.completed_at, v_now)
-  where hp.session_id = p_session_id
-    and hp.status = 'assigned'
-    and hp.assigned_at is not null
-    and hp.assigned_at <= v_now - v_ttl;
-
-  get diagnostics v_updated = row_count;
-
-  if v_updated > 0 then
-    select count(*)
-    into v_completed
+  with expired as (
+    select
+      hp.session_id,
+      hp.page_number,
+      hp.assigned_to,
+      hp.claim_token
     from hatym_pages hp
     where hp.session_id = p_session_id
-      and hp.status = 'completed';
-
-    if v_completed >= 604 then
-      update hatym_sessions hs
-      set completed_at = coalesce(hs.completed_at, v_now),
-          is_active = false
-      where hs.id = p_session_id
-        and hs.completed_at is null;
-    end if;
-  end if;
+      and hp.status = 'assigned'
+      and hp.assigned_at is not null
+      and hp.assigned_at <= v_now - v_ttl
+    for update
+  ),
+  marked_events as (
+    update hatym_claim_events hce
+    set expired_at = coalesce(hce.expired_at, v_now)
+    from expired e
+    where hce.session_id = e.session_id
+      and hce.user_id = e.assigned_to
+      and hce.page_number = e.page_number
+      and hce.claim_token = e.claim_token
+      and hce.completed_at is null
+      and hce.expired_at is null
+    returning hce.id
+  ),
+  released as (
+    update hatym_pages hp
+    set status = 'available',
+        assigned_to = null,
+        assigned_at = null,
+        completed_at = null,
+        claim_token = null,
+        last_expired_to = e.assigned_to,
+        last_expired_at = v_now
+    from expired e
+    where hp.session_id = e.session_id
+      and hp.page_number = e.page_number
+    returning 1
+  )
+  select count(*)
+  into v_updated
+  from released;
 
   return v_updated;
 end;
 $$;
 
+drop function if exists claim_next_page(uuid, text, int);
+
 create or replace function claim_next_page(
   p_session_id uuid,
   p_user_id text,
+  p_reader_name text,
+  p_deceased_name text default null,
   p_ttl_minutes int default null
 )
 returns table (
@@ -305,11 +369,21 @@ declare
   v_page record;
   v_session_active boolean;
   v_claimed_count int := 0;
+  v_active_count int := 0;
   v_rows_returned int := 0;
   v_rows int := 0;
   v_max_pages int := 3;
+  v_pages_to_assign int := 1;
   v_ttl_minutes int := 10;
+  v_reader_name text := nullif(btrim(coalesce(p_reader_name, '')), '');
+  v_deceased_name text := nullif(btrim(coalesce(p_deceased_name, '')), '');
 begin
+  if v_reader_name is null then
+    status := 'name_required';
+    return next;
+    return;
+  end if;
+
   select
     hs.is_active,
     least(greatest(coalesce(hs.pages_per_user, 3), 1), 20),
@@ -329,42 +403,66 @@ begin
   -- Serialize claims for the same user in the same session.
   perform pg_advisory_xact_lock(hashtext(p_session_id::text || ':' || p_user_id));
 
+  insert into hatym_participants (
+    session_id,
+    user_id,
+    name,
+    deceased_name,
+    joined_at,
+    last_seen_at
+  )
+  values (
+    p_session_id,
+    p_user_id,
+    v_reader_name,
+    v_deceased_name,
+    v_now,
+    v_now
+  )
+  on conflict (session_id, user_id) do update
+  set name = excluded.name,
+      deceased_name = excluded.deceased_name,
+      last_seen_at = excluded.last_seen_at;
+
   select count(*)
   into v_claimed_count
   from hatym_claim_events hce
   where hce.session_id = p_session_id
     and hce.user_id = p_user_id;
 
+  select count(*)
+  into v_active_count
+  from hatym_pages hp
+  where hp.session_id = p_session_id
+    and hp.assigned_to = p_user_id
+    and hp.status = 'assigned';
+
   return query
   select
     hp.page_number,
     qp.mushaf_url,
-    case when hp.status = 'assigned' then hp.claim_token else null end as claim_token,
+    hp.claim_token,
     hp.status
   from hatym_pages hp
   join quran_pages qp on qp.page_number = hp.page_number
   where hp.session_id = p_session_id
     and hp.assigned_to = p_user_id
-    and hp.status in ('assigned', 'completed')
-  order by case when hp.status = 'assigned' then 0 else 1 end, hp.page_number
-  limit v_max_pages;
+    and hp.status = 'assigned'
+  order by hp.page_number;
 
   get diagnostics v_rows = row_count;
   v_rows_returned := v_rows_returned + v_rows;
 
-  if v_rows_returned > v_claimed_count then
-    v_claimed_count := v_rows_returned;
-  end if;
-
-  if v_claimed_count >= v_max_pages then
-    if v_rows_returned = 0 then
-      status := 'limit_reached';
-      return next;
-    end if;
+  if v_active_count > 0 then
     return;
   end if;
 
-  while v_claimed_count < v_max_pages and v_rows_returned < v_max_pages loop
+  v_pages_to_assign := case
+    when v_claimed_count = 0 then v_max_pages
+    else 1
+  end;
+
+  while v_rows_returned < v_pages_to_assign loop
     select hp.page_number
     into v_page
     from hatym_pages hp
@@ -382,6 +480,7 @@ begin
     set status = 'assigned',
         assigned_to = p_user_id,
         assigned_at = v_now,
+        completed_at = null,
         claim_token = encode(extensions.gen_random_bytes(24), 'base64')
     where hp.session_id = p_session_id
       and hp.page_number = v_page.page_number
@@ -390,8 +489,8 @@ begin
       hp.claim_token
     into page_number, mushaf_url, claim_token;
 
-    insert into hatym_claim_events (session_id, user_id, page_number)
-    values (p_session_id, p_user_id, page_number);
+    insert into hatym_claim_events (session_id, user_id, page_number, claim_token, claimed_at)
+    values (p_session_id, p_user_id, page_number, claim_token, v_now);
 
     status := 'assigned';
     return next;
@@ -427,6 +526,8 @@ declare
   v_updated int;
   v_completed int;
 begin
+  perform release_expired_assignments(p_session_id);
+
   update hatym_pages as hp
   set status = 'completed',
       completed_at = now()
@@ -444,6 +545,14 @@ begin
     return next;
     return;
   end if;
+
+  update hatym_claim_events hce
+  set completed_at = coalesce(hce.completed_at, now())
+  where hce.session_id = p_session_id
+    and hce.user_id = p_user_id
+    and hce.page_number = p_page_number
+    and hce.claim_token = p_claim_token
+    and hce.expired_at is null;
 
   select count(*) into v_completed
   from hatym_pages hp
@@ -474,8 +583,8 @@ grant execute on function create_hatym_session() to service_role;
 revoke all on function create_hatym_session_with_settings(int, int, int) from public;
 grant execute on function create_hatym_session_with_settings(int, int, int) to service_role;
 
-revoke all on function claim_next_page(uuid, text, int) from public;
-grant execute on function claim_next_page(uuid, text, int) to anon, authenticated;
+revoke all on function claim_next_page(uuid, text, text, text, int) from public;
+grant execute on function claim_next_page(uuid, text, text, text, int) to anon, authenticated;
 
 revoke all on function release_expired_assignments(uuid, int) from public;
 grant execute on function release_expired_assignments(uuid, int) to anon, authenticated;

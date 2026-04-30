@@ -22,9 +22,14 @@ export async function POST(request: Request) {
     });
 
     if (error || !data) {
+      const isSchemaMismatch =
+        error?.message?.includes("create_hatym_session_with_settings") ||
+        error?.message?.includes("hatym_sessions_single_row_idx") ||
+        error?.message?.includes("hatym_participants") ||
+        error?.message?.includes("schema cache");
       const message =
-        error?.message?.includes("create_hatym_session_with_settings")
-          ? "Database schema is outdated. Apply the latest supabase/schema.sql."
+        isSchemaMismatch
+          ? "Database schema is outdated. Apply the latest supabase/schema.sql to remove the legacy single-session constraint and add v2 tables."
           : error?.message || "Unable to create session";
 
       return NextResponse.json(
